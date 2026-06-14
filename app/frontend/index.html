@@ -1,0 +1,333 @@
+<!doctype html>
+<html lang="uk">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Панель керування AI-новинами</title>
+    <link rel="stylesheet" href="/static/dashboard.css" />
+  </head>
+  <body>
+    <div id="toast" class="toast" role="status" aria-live="polite" hidden>
+      <span id="toastMessage"></span>
+      <button id="toastCloseBtn" class="toast-close" type="button">Закрити</button>
+    </div>
+
+    <header class="topbar">
+      <div>
+        <p class="eyebrow">Панель</p>
+        <h1>КОНВЕЄР AI-НОВИН</h1>
+        <p class="lead">Автоматичний збір, обробка та доставка новин</p>
+      </div>
+      <div class="top-actions">
+        <button id="refreshBtn" class="secondary" type="button" title="Оновити статуси, новини, джерела та пости">Оновити панель</button>
+        <a id="telegramChannelLinkTop" class="link-button" href="#" target="_blank" rel="noreferrer" hidden>Відкрити Telegram-канал</a>
+      </div>
+    </header>
+
+    <main class="dashboard">
+      <details class="section" open>
+        <summary>
+          <span>🔐 Конфігурація</span>
+          <small>Адмін, OpenAI, Telegram-бот і канал</small>
+        </summary>
+        <div class="section-body compact-grid">
+          <article class="mini-card">
+            <h2>Адмін-ключ API</h2>
+            <p class="hint">Ключ відкриває керування темами, джерелами, конвеєром новин, AI-постами та Telegram-доставкою.</p>
+            <label>
+              <span>Вставити ключ з `.env`</span>
+              <input id="apiKey" type="password" placeholder="ADMIN_API_KEY" autocomplete="off" />
+            </label>
+            <div class="button-row">
+              <button id="saveKeyBtn" type="button" title="Зберігає ключ у поточній сесії браузера і перевіряє його через API">Зберегти і перевірити</button>
+              <button id="clearKeyBtn" class="secondary" type="button" title="Очищає ключ тільки в браузері, .env не змінюється">Очистити</button>
+            </div>
+            <div id="adminKeyStatus" class="status">[LOCK] Не перевірено</div>
+          </article>
+
+          <article class="mini-card">
+            <h2>Ключ OpenAI API</h2>
+            <p class="hint">Якщо ключ уже прочитано з середовища, вводити його повторно не потрібно. Кнопка робить реальний тестовий запит.</p>
+            <div id="openaiStatus" class="status">[WAIT] Завантаження...</div>
+            <button id="verifyOpenaiBtn" class="secondary" type="button" title="Перевіряє кінцеву точку OpenAI і показує реальний текст помилки">Перевірити ключ OpenAI</button>
+            <pre id="openaiCheckResult" class="result-box"></pre>
+          </article>
+
+          <article class="mini-card">
+            <h2>Telegram-бот</h2>
+            <p class="hint">Токен бота і цільовий канал читаються з `.env`. Якщо вони є, панель не просить вводити їх повторно.</p>
+            <div id="telegramBotStatus" class="status">[WAIT] Завантаження...</div>
+            <div id="telegramChannelStatus" class="status">[WAIT] Завантаження...</div>
+            <div id="telegramReaderStatus" class="status">[WAIT] Завантаження...</div>
+            <div class="button-row">
+              <button id="showTelegramEnvBtn" class="secondary" type="button">Додати Bot Token / Target Channel</button>
+              <a id="telegramChannelLink" class="link-button" href="#" target="_blank" rel="noreferrer" hidden>Відкрити канал</a>
+            </div>
+            <div id="telegramEnvBox" class="env-box" hidden>
+              <input id="telegramBotTokenInput" type="password" placeholder="TELEGRAM_BOT_TOKEN" autocomplete="off" />
+              <input id="telegramChannelInput" placeholder="@my_channel або https://t.me/my_channel" autocomplete="off" />
+              <button id="copyTelegramEnvLinesBtn" class="secondary" type="button">Скопіювати рядки для .env</button>
+              <small>Поля лише готують текст для `.env`. Після зміни `.env` перезапусти `docker compose up -d`.</small>
+            </div>
+          </article>
+        </div>
+      </details>
+
+      <details class="section" open>
+        <summary>
+          <span>📰 Новини</span>
+          <small>Теми, ключові слова, RSS та Telegram джерела</small>
+        </summary>
+        <div class="section-body compact-grid">
+          <article class="mini-card">
+            <h2>Теми</h2>
+            <p class="hint">Теми другорядні. Їх можна не вказувати для джерел.</p>
+            <form id="topicForm" class="stack">
+              <input name="name" placeholder="Назва теми, наприклад AI" required />
+              <textarea name="description" placeholder="Опис теми"></textarea>
+              <div class="button-row wrap">
+                <button class="secondary" type="button" data-topic-template="AI">Приклад AI</button>
+                <button class="secondary" type="button" data-topic-template="IT Ukraine">Приклад IT Україна</button>
+                <button class="secondary" type="button" data-topic-template="Business">Приклад Бізнес</button>
+                <button class="secondary" type="button" data-topic-template="Science">Приклад Наука</button>
+              </div>
+              <label class="check-row">
+                <input name="enabled" type="checkbox" checked />
+                <span>Активувати тему після збереження</span>
+              </label>
+              <button id="saveTopicBtn" type="submit">Зберегти тему</button>
+            </form>
+            <div id="topicSaveStatus" class="status slim">[WAIT] Очікує дії</div>
+            <div id="topicsList" class="list compact"></div>
+          </article>
+
+          <article class="mini-card">
+            <h2>Ключові слова</h2>
+            <p class="hint">Ключові слова теж другорядні. Можна лишити порожніми.</p>
+            <form id="keywordForm" class="stack">
+              <textarea name="keywords" placeholder="ai, openai, машинне навчання"></textarea>
+              <select name="topic_id" id="keywordTopic"></select>
+              <div class="button-row wrap">
+                <button class="secondary" type="button" data-keyword-template="ai">Приклад AI</button>
+                <button class="secondary" type="button" data-keyword-template="rss">Приклад RSS</button>
+                <button class="secondary" type="button" data-keyword-template="telegram">Приклад Telegram</button>
+              </div>
+              <button id="saveKeywordBtn" type="submit">Зберегти ключові слова</button>
+            </form>
+            <div id="keywordSaveStatus" class="status slim">[WAIT] Очікує дії</div>
+            <div id="keywordsList" class="list compact"></div>
+          </article>
+
+          <article class="mini-card">
+            <h2>Джерела</h2>
+            <p class="hint">Основний блок. RSS і Telegram окремо. Джерела можна додавати без тем і без ключових слів.</p>
+            <div class="tabs">
+              <button id="sourceTabSite" class="tab active" type="button">RSS</button>
+              <button id="sourceTabTg" class="tab" type="button">Телеграм</button>
+            </div>
+            <form id="sourceForm" class="stack">
+              <select name="type" id="sourceType" hidden>
+                <option value="site">RSS</option>
+                <option value="tg">Телеграм</option>
+              </select>
+              <input name="name" placeholder="Назва джерела" required />
+              <input name="url" placeholder="URL RSS-стрічки або @назва_каналу" required />
+              <div id="sourceUrlHint" class="hint"></div>
+              <select name="topic_id" id="sourceTopic"></select>
+              <input name="enabled" type="hidden" value="true" />
+              <div id="sourceEnabledLabel" class="status slim">[OK] Нове джерело буде активним після додавання.</div>
+              <button id="sourceSubmitBtn" type="submit">Додати RSS джерело</button>
+            </form>
+            <div id="sourceSaveStatus" class="status slim">[WAIT] Очікує дії</div>
+
+            <details class="subdetails">
+              <summary>Перелік прикладів новин RSS</summary>
+              <div id="rssSuggestionsList" class="list compact"></div>
+            </details>
+            <details class="subdetails">
+              <summary>Перелік прикладів новин Telegram</summary>
+              <div id="telegramSuggestionsList" class="list compact"></div>
+            </details>
+            <div class="source-columns">
+              <section class="source-column">
+                <h3>Джерела RSS</h3>
+                <div id="rssSourcesList" class="list compact"></div>
+              </section>
+              <section class="source-column">
+                <h3>Джерела Telegram</h3>
+                <div id="telegramSourcesList" class="list compact"></div>
+              </section>
+            </div>
+          </article>
+        </div>
+      </details>
+
+      <details class="section">
+        <summary>
+          <span>📨 Доставка в Telegram</span>
+          <small>Автодоставка, ручна відправка і результат</small>
+        </summary>
+        <div class="section-body compact-grid">
+          <article class="mini-card">
+            <h2>Доставка</h2>
+            <label class="check-row">
+              <input id="autoPublishToggle" type="checkbox" />
+            <span>Автоматично відправляти підтверджені пости ШІ в Telegram</span>
+            </label>
+            <div id="deliveryStatus" class="status">[WAIT] Дій ще не було</div>
+            <p class="hint">Кнопки відправки нижче показують не лише `queued`, а й перевіряють задачу до завершення: виконано або помилка.</p>
+          </article>
+          <article class="mini-card">
+            <h2>Канал</h2>
+            <div id="telegramTarget">Канал завантажується...</div>
+            <div class="button-row">
+              <a id="telegramDeliveryLink" class="link-button" href="#" target="_blank" rel="noreferrer" hidden>Відкрити канал</a>
+              <button id="checkDeliveryBtn" class="secondary" type="button">Перевірити доставку</button>
+            </div>
+          </article>
+        </div>
+      </details>
+
+      <details class="section" open>
+        <summary>
+          <span>📊 Статус системи</span>
+          <small>Конвеєр, RSS, Telegram, ШІ</small>
+        </summary>
+        <div class="section-body">
+          <details class="subdetails" open>
+            <summary>Конвеєр: запуск і виконання</summary>
+            <div class="subbody">
+              <div id="pipelineReadyStatus" class="status">[WAIT] Конвеєр очікує запуску</div>
+              <div class="button-row">
+                <button id="runPipelineBtn" type="button" title="Запускає конвеєр: джерела → новини → пости ШІ">Почати збір новин</button>
+                <button id="refreshPipelineBtn" class="secondary" type="button">Оновити статус</button>
+              </div>
+              <div id="workflowStatus" class="status">[WAIT] Конвеєр очікує запуску</div>
+              <div id="pipelineStageList" class="stage-list"></div>
+              <div id="pipelineResult" class="result-box"></div>
+            </div>
+          </details>
+
+          <details class="subdetails">
+            <summary>RSS і Telegram джерела</summary>
+            <div class="subbody status-grid">
+              <div id="rssReadyStatus" class="status">[WAIT] RSS очікує запуску</div>
+              <div id="telegramReadyStatus" class="status">[WAIT] Telegram очікує запуску</div>
+            </div>
+          </details>
+
+          <details class="subdetails">
+            <summary>Статус ШІ і пояснення</summary>
+            <div class="subbody">
+              <div id="aiReadyStatus" class="status">[WAIT] ШІ очікує перевірки</div>
+              <div class="legend">
+                <span>[OK] Готово — готовий до роботи</span>
+                <span>[RUN] Виконується — виконується</span>
+                <span>[WAIT] Очікує — очікує запуску</span>
+                <span>[ERROR] Помилка — помилка конфігурації або виконання</span>
+              </div>
+            </div>
+          </details>
+        </div>
+      </details>
+
+      <details class="section" open>
+        <summary>
+          <span>🧪 Публікація і ручне редагування</span>
+          <small>Пошук, створення матеріалу, сайт, Telegram, перевірка ШІ</small>
+        </summary>
+        <div class="section-body">
+          <details class="subdetails">
+            <summary>1. Пошук і фільтрація новин</summary>
+            <div class="subbody">
+              <p class="hint">Пошук працює по заголовку та опису. Збережені шаблони залишаються після оновлення сторінки.</p>
+              <div class="toolbar">
+                <input id="newsSearch" placeholder="Пошук за заголовком або описом" />
+                <select id="searchExampleSelect">
+                  <option value="">Приклади пошуку</option>
+                  <option value="AI">ШІ</option>
+                  <option value="Україна">Україна</option>
+                  <option value="startup">Стартап</option>
+                  <option value="Telegram">Телеграм</option>
+                </select>
+                <select id="newsTopic"></select>
+                <button id="searchNewsBtn" class="secondary" type="button">Шукати</button>
+                <button id="saveSearchTemplateBtn" class="secondary" type="button">Зберегти пошук</button>
+              </div>
+              <div id="savedSearches" class="button-row wrap"></div>
+            </div>
+          </details>
+
+          <details class="subdetails">
+            <summary>2. Ручне редагування новини</summary>
+            <div class="subbody">
+            <p class="hint">Приклад: створи новину вручну → натисни “Створити пост” → за потреби відредагуй пост ШІ → відправ у канал або додай у стрічку сайту.</p>
+            <form id="manualNewsForm" class="stack">
+              <input name="title" placeholder="Заголовок тестової новини" required />
+              <textarea name="summary" placeholder="Опис або текст новини для ШІ-обробки" required></textarea>
+              <input name="url" placeholder="URL новини, необов'язково" />
+              <input name="source" placeholder="Джерело, наприклад ручне" value="Ручна панель" />
+              <select name="topic_id" id="manualNewsTopic"></select>
+              <button id="createManualNewsBtn" type="submit">Створити чернетку</button>
+            </form>
+            <div id="manualNewsStatus" class="status slim">[WAIT] Ручну новину ще не створювали</div>
+            </div>
+          </details>
+
+          <div class="content-grid">
+            <details class="subdetails" open>
+              <summary>3. Зібрані новини з RSS/Telegram</summary>
+              <div class="subbody">
+              <p class="hint">Кнопка “Створити пост” робить коротку відредаговану версію. Якщо ключ OpenAI невалідний, ручний демо-режим все одно працює.</p>
+              <div id="newsList" class="list cards"></div>
+              </div>
+            </details>
+          <details class="subdetails" open>
+            <summary>4. Черга підтвердження</summary>
+              <div class="subbody">
+              <p class="hint">Тут можна вручну скоротити або переписати текст. Саме цей відредагований текст потрапляє в Telegram і стрічку сайту.</p>
+              <div class="button-row">
+                <select id="postStatusFilter">
+                  <option value="pending_approval">Очікують підтвердження</option>
+                  <option value="generated">Згенеровані</option>
+                  <option value="failed">Помилки</option>
+                  <option value="published">Опубліковані</option>
+                  <option value="">Усі пости</option>
+                </select>
+                <button id="refreshPostsBtn" class="secondary" type="button">Оновити</button>
+              </div>
+              <div id="postsList" class="list cards"></div>
+              </div>
+            </details>
+          </div>
+
+          <details id="siteFeedSection" class="subdetails" open>
+            <summary>5. Стрічка сайту</summary>
+            <div class="subbody">
+            <p class="hint">Це і є стрічка сайту після редакції: тут видно оригінал, скорочений текст, статус і місце публікації.</p>
+            <div id="publishedList" class="list cards"></div>
+            </div>
+          </details>
+
+          <details class="subdetails">
+            <summary>6. Перевірка ШІ</summary>
+            <div class="subbody">
+            <form id="generateForm" class="stack">
+              <textarea name="text" placeholder="Текст для тестового або запиту OpenAI" required></textarea>
+              <div class="button-row wrap">
+                <label class="check-row"><input type="radio" name="mode" value="demo" checked /> Тестовий режим без ключа OpenAI</label>
+                <label class="check-row"><input type="radio" name="mode" value="openai" /> Реальний запит OpenAI</label>
+              </div>
+              <button id="testAiBtn" type="submit">Перевірити ШІ</button>
+            </form>
+            <div id="aiCheckStatus" class="status slim">[WAIT] Тест ще не запускали</div>
+            <pre id="generateResult" class="result-box"></pre>
+            </div>
+          </details>
+        </div>
+      </details>
+    </main>
+
+    <script src="/static/dashboard.js"></script>
+  </body>
+</html>
