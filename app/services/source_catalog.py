@@ -32,6 +32,13 @@ SOURCE_SUGGESTIONS = [
         "description": "Бізнес та економіка у форматі RSS.",
     },
     {
+        "type": SourceType.site,
+        "name": "TechCrunch",
+        "url": "https://techcrunch.com/feed/",
+        "topic_slug": "technology",
+        "description": "Один із найпопулярніших RSS-фідів про стартапи й технології.",
+    },
+    {
         "type": SourceType.tg,
         "name": "DOU",
         "url": "@doucommunity",

@@ -1,23 +1,17 @@
 # AI News Pipeline
 
-AI News Pipeline збирає новини з RSS і Telegram, зберігає їх у PostgreSQL, формує матеріали через AI або ручне редагування та публікує їх у Telegram після підтвердження.
+AI News Pipeline збирає новини з RSS і Telegram, зберігає їх у PostgreSQL, готує матеріали через AI або ручне редагування та публікує погоджений контент у Telegram.
 
-Ключова ідея проєкту:
+Проєкт побудований так, щоб AI був необов'язковим:
 
-- dashboard керує джерелами, темами, ключовими словами та чергою публікації
-- AI не є обов'язковим: платформа працює й без `OPENAI_API_KEY`
-- `.env` читається з кореня проєкту, тому ключі працюють у Docker, терміналі та VS Code
+- платформа працює без `OPENAI_API_KEY`
+- demo-режим доступний скрізь, де це важливо
+- `.env` читається з кореня репозиторію, тому VS Code, Docker і термінал використовують однакову конфігурацію
 
-## Стек
+## Документація
 
-- FastAPI
-- PostgreSQL
-- Redis
-- Celery
-- Flower
-- Telegram Bot
-- OpenAI
-- Docker
+- [README.md](README.md)
+- [README_EN.md](README_EN.md)
 
 ## Швидкий старт
 
@@ -27,7 +21,7 @@ AI News Pipeline збирає новини з RSS і Telegram, зберігає 
 Copy-Item .env.example .env
 ```
 
-### 2. Заповни ключові змінні
+### 2. Заповни змінні середовища
 
 Мінімум:
 
@@ -54,20 +48,52 @@ docker compose ps
 
 - `http://localhost:8000/`
 
-## Важливо про `.env` і VS Code
+## Важливо про `ADMIN_API_KEY`
 
-Якщо ключ є реальним, але не читається, причина майже завжди в робочій директорії запуску.
+`ADMIN_API_KEY` зберігається тільки в `.env` у корені проєкту.
 
-Щоб прибрати цю проблему, у проєкті вже налаштовано:
+Frontend:
 
-- абсолютний шлях до `.env` у `app/config.py`
-- `python.envFile` у [.vscode/settings.json](./.vscode/settings.json)
-- окремий launch-профіль у [.vscode/launch.json](./.vscode/launch.json)
+- не містить ключа в коді
+- тимчасово зберігає його лише в `sessionStorage` браузера
+- передає його в заголовку `X-API-Key`
 
-Тому достатньо:
+Backend:
 
-1. покласти `.env` у корінь репозиторію
-2. запустити app з кореня проєкту або через VS Code profile
+- читає ключ з `.env`
+- порівнює його з заголовком `X-API-Key`
+- повертає людяні повідомлення, якщо ключ не збігається або не налаштований
+
+### Як правильно створити `ADMIN_API_KEY`
+
+Рекомендовано використовувати довгий випадковий секрет.
+
+PowerShell:
+
+```powershell
+$bytes = New-Object byte[] 32
+[System.Security.Cryptography.RandomNumberGenerator]::Fill($bytes)
+[Convert]::ToBase64String($bytes)
+```
+
+Альтернативно через Python:
+
+```powershell
+python -c "import secrets; print(secrets.token_urlsafe(32))"
+```
+
+### Де зберігати `ADMIN_API_KEY`
+
+1. Додай значення у `.env` у корені репозиторію.
+2. Перезапусти backend:
+
+```powershell
+docker compose up -d
+```
+
+3. Увійди у dashboard і встав цей же ключ у поле доступу.
+
+Якщо ключ змінився у `.env`, браузерний `sessionStorage` не оновиться автоматично, тому старий ключ у dashboard треба замінити вручну.
 
 ## Змінні середовища
 
@@ -93,7 +119,7 @@ docker compose ps
 - `OPENAI_API_KEY`
 - `OPENAI_MODEL`
 
-### Поведінка пайплайна
+### Поведінка конвеєра
 
 - `AUTO_PUBLISH_POSTS`
 - `PARSER_INTERVAL_MINUTES`
@@ -101,99 +127,309 @@ docker compose ps
 - `DEFAULT_NEWS_LIMIT`
 - `ALLOWED_LANGUAGES`
 
-## Запуск і зупинка
+## Архітектура проєкту
 
-```powershell
-docker compose build
-docker compose up -d
-docker compose ps
-docker compose logs --tail=80 app
-docker compose logs -f app
-docker compose down
-docker compose down -v
-```
-
-## Перевірка API
-
-```powershell
-Invoke-RestMethod http://localhost:8000/api/health
-Invoke-RestMethod http://localhost:8000/api/public-status
-```
-## Створення адмін ключа 
-```powershell
-$bytes = New-Object byte[] 32
-[System.Security.Cryptography.RandomNumberGenerator]::Fill($bytes)
-[Convert]::ToBase64String($bytes)
-``` 
-## Перевірка `ADMIN_API_KEY`
-
-```powershell
-$headers = @{ "X-API-Key" = "твій_ADMIN_API_KEY" }
-Invoke-RestMethod -Uri http://localhost:8000/api/settings -Headers $headers
-```
-
-## Структура проєкту
-
-- `app/main.py` - вхід FastAPI і dashboard
+- `app/main.py` - FastAPI entrypoint і dashboard
 - `app/config.py` - читання `.env`
 - `app/api/endpoints.py` - API для dashboard
 - `app/tasks.py` - Celery pipeline
 - `app/news_parser/` - RSS і Telegram парсери
 - `app/ai/` - OpenAI клієнт і demo fallback
-- `app/telegram/` - Telegram Bot і публікація
-- `app/frontend/` - dashboard UI
-- `alembic/` - міграції бази
+- `app/telegram/` - Telegram bot і публікація
+- `app/frontend/` - UI dashboard
+- `alembic/` - міграції бази даних
+
+## Сервіси та порти
+
+### AI News Frontend
+
+- URL: `http://localhost:8000/`
+- Порт: `8000`
+- Призначення: панель керування, перегляд новин, тем, джерел, черги публікації та статусів
+- Команда запуску:
+
+```powershell
+docker compose up -d app
+```
+
+- Команда перевірки:
+
+```powershell
+Invoke-WebRequest -Uri http://localhost:8000/ -UseBasicParsing
+```
+
+### FastAPI Backend
+
+- URL: `http://localhost:8000/`
+- Порт: `8000`
+- Призначення: REST API, dashboard, перевірка ключів, керування конвеєром
+- Команда запуску:
+
+```powershell
+docker compose up -d app
+```
+
+- Команда перевірки:
+
+```powershell
+Invoke-RestMethod http://localhost:8000/api/health
+Invoke-RestMethod http://localhost:8000/api/public-status
+```
+
+### PostgreSQL
+
+- URL: `postgresql://localhost:5432`
+- Порт: `5432`
+- Призначення: основна база даних
+- Команда запуску:
+
+```powershell
+docker compose up -d postgres
+```
+
+- Команда перевірки:
+
+```powershell
+docker compose exec postgres pg_isready -U $env:POSTGRES_USER -d $env:POSTGRES_DB
+```
+
+### Redis
+
+- URL: `redis://localhost:6379`
+- Порт: `6379`
+- Призначення: брокер і сховище результатів Celery
+- Команда запуску:
+
+```powershell
+docker compose up -d redis
+```
+
+- Команда перевірки:
+
+```powershell
+docker compose exec redis redis-cli ping
+```
+
+### Celery Worker
+
+- URL: немає окремого URL
+- Порт: немає окремого порту
+- Призначення: обробка задач конвеєра, генерація постів, публікація
+- Команда запуску:
+
+```powershell
+docker compose up -d app
+```
+
+- Команда перевірки:
+
+```powershell
+docker compose logs --tail=80 app
+```
+
+### Celery Beat
+
+- URL: немає окремого URL
+- Порт: немає окремого порту
+- Призначення: планувальник періодичних задач
+- Команда запуску:
+
+```powershell
+docker compose up -d app
+```
+
+- Команда перевірки:
+
+```powershell
+docker compose logs --tail=80 app
+```
+
+### Flower
+
+- URL: `http://localhost:5555/`
+- Порт: `5555`
+- Призначення: веб-інтерфейс для черги Celery
+- Команда запуску:
+
+```powershell
+docker compose up -d flower
+```
+
+- Команда перевірки:
+
+```powershell
+Invoke-WebRequest -Uri http://localhost:5555/ -UseBasicParsing
+```
+
+### Adminer
+
+- URL: `http://localhost:8082/`
+- Порт: `8082`
+- Призначення: веб-клієнт для PostgreSQL
+- Команда запуску:
+
+```powershell
+docker compose up -d adminer
+```
+
+- Команда перевірки:
+
+```powershell
+Invoke-WebRequest -Uri http://localhost:8082/ -UseBasicParsing
+```
+
+### Redis Commander
+
+- URL: `http://localhost:8081/`
+- Порт: `8081`
+- Призначення: веб-інтерфейс для Redis
+- Команда запуску:
+
+```powershell
+docker compose up -d redis-commander
+```
+
+- Команда перевірки:
+
+```powershell
+Invoke-WebRequest -Uri http://localhost:8081/ -UseBasicParsing
+```
+
+### Telegram Bot
+
+- URL: немає окремого URL
+- Порт: немає окремого порту
+- Призначення: публікація погоджених матеріалів у Telegram і показ останнього стану
+- Команда запуску:
+
+```powershell
+docker compose up -d app
+```
+
+- Команда перевірки:
+
+```powershell
+docker compose logs --tail=80 app
+Invoke-RestMethod http://localhost:8000/api/public-status
+```
+
+### OpenAI
+
+- URL: `https://api.openai.com/`
+- Порт: `443`
+- Призначення: генерація матеріалів ШІ
+- Команда запуску:
+
+```powershell
+docker compose up -d app
+```
+
+- Команда перевірки:
+
+```powershell
+Invoke-RestMethod -Uri http://localhost:8000/api/openai/check -Headers @{ "X-API-Key" = "твій_ADMIN_API_KEY" } -Method Post
+```
+
+### Docker Compose
+
+- URL: не застосовується
+- Порт: не застосовується
+- Призначення: оркестрація всіх контейнерів
+- Команда запуску:
+
+```powershell
+docker compose build
+docker compose up -d
+```
+
+- Команда перевірки:
+
+```powershell
+docker compose ps
+docker compose logs --tail=80 app
+```
 
 ## Dashboard
 
-Dashboard має такі блоки:
+Dashboard складається з таких блоків:
 
-- Доступ
-- OpenAI
-- AI Test
-- Теми
+- Конфігурація
+- Новини
+- Доставка в Telegram
+- Статус системи
+- Публікація і ручний режим
+
+### Конфігурація
+
+Блок має окремий колір, а підблоки мають власне візуальне виділення:
+
+- Admin API - синій
+- OpenAI - фіолетовий
+- Telegram - блакитний
+
+### Тема новин
+
+Один спрощений блок:
+
+- Назва теми
+- Опис
 - Ключові слова
-- News Sources
-- News Pipeline
-- Collected News
-- Publishing Queue
-- Telegram Bot
+- Випадаючий список прикладів тем
+- Кнопка `Зберегти тему`
 
-### News Sources
+Після збереження показується:
+
+- `Тему активовано`
+- `Тему не активовано`
+
+### Джерела новин
 
 Два окремі каталоги:
 
-- RSS Sources
-- Telegram Sources
+- Перелік RSS джерел
+- Перелік Telegram джерел
 
-Для Telegram використовується кнопка `Add News Channel`.
+Щонайменше 5 прикладів у кожному каталозі.
 
-Кожна картка джерела показує:
+Після вибору прикладу автоматично заповнюються:
 
-- назву
-- URL
-- статус
-- останню помилку
-- час останньої перевірки
-- час останнього успіху
+- назва
+- адреса
+- тема
 
-### Topics and Keywords
+Після додавання назва та адреса джерела підсвічуються зеленим.
 
-Теми і ключові слова розділені.
+Для Telegram-джерел статус показує:
 
-Тема:
+- `Канал запущено`
+- `Канал недоступний`
 
-- name
-- description
+### Новини
 
-Ключові слова:
+Якщо новини відсутні, показується зрозуміле повідомлення:
 
-- вводяться через кому
-- можуть бути без прив'язки до теми
+`Новини не знайдено. Перевірте джерела або запустіть збір новин.`
 
-### News Pipeline
+На картці новини доступні дії:
 
-Пайплайн показує такі етапи:
+- `Створити чернетку`
+- `Покращити ШІ`
+- `На підтвердження`
+- `У Telegram`
+
+### Конвеєр
+
+Кнопки:
+
+- `Почати збір новин`
+- `Оновити статус`
+
+Статус показує:
+
+- `🟢 Конвеєр працює`
+- `🔴 Конвеєр зупинено`
+
+І етапи виконання:
 
 - Pipeline Started
 - RSS Processing
@@ -203,79 +439,37 @@ Dashboard має такі блоки:
 - Publishing
 - Completed
 
-Статус відображається як:
+### Telegram
 
-- `🟢 Pipeline Running`
-- `🔴 Pipeline Stopped`
+Якщо Telegram уже налаштований через `.env`, поля `Bot Token` і `Target Channel` не показуються.
 
-Повідомлення `News Collection Completed` з'являється тільки після завершення всіх етапів.
+Показуються:
 
-### Collected News
+- `🟢 Telegram підключено`
+- `🔴 Telegram не підключено`
 
-У блоці новин видно:
+Якщо підключення відсутнє, показується людська причина:
 
-- Title
-- Source
-- Date
-- Summary
-
-Назва веде на повну статтю.
-
-Дії:
-
-- Edit Manually
-- Improve with AI
-- Publish to Website
-- Publish to Telegram
-
-### Publishing Queue
-
-Це черга матеріалів:
-
-- AI-generated posts
-- manually edited posts
-
-Фільтри:
-
-- Pending Approval
-- Published
-- Errors
-- All
-
-Порожній стан:
-
-`No materials available. Check sources or start news collection.`
-
-### Telegram Bot
-
-Після `/start` бот показує:
-
-- Status
-- Latest News
-- Latest Material
-- Approve Publication
-- Return for Editing
-
-Стан показує:
-
-- Bot Online / Offline
-- Channel Available / Unavailable
-- Publishing Available / Unavailable
-- Last Successful Delivery
+- токен бота не задано
+- цільовий канал не задано
+- бот не має доступу до каналу
 
 ### OpenAI
 
 Секція OpenAI показує:
 
-- OpenAI API Key
-- 🟢 OpenAI Connected
-- 🔴 OpenAI Not Connected
+- `OpenAI API Key`
+- `🟢 OpenAI підключено`
+- `🔴 OpenAI не підключено`
+
+Кнопка перевірки не потребує логів, а повертає текстовий результат.
 
 ### AI Test
 
-Поле:
+Поля:
 
 - AI Prompt
+- Mode
 
 Режими:
 
@@ -284,26 +478,29 @@ Dashboard має такі блоки:
 
 Кнопка:
 
-- `🤖 Test AI`
+- `Перевірити ШІ`
 
 Demo mode працює без ключа.
 
-## AI без OpenAI
+## Як працює конвеєр
 
-Платформа не залежить від реального OpenAI:
+1. Користувач додає джерела.
+2. Запускає `Почати збір новин`.
+3. Celery збирає RSS і Telegram.
+4. Новини проходять фільтрацію.
+5. Створюються матеріали.
+6. Матеріали потрапляють у чергу підтвердження.
+7. Матеріали можна відредагувати вручну або через AI.
+8. Після підтвердження матеріал відправляється в Telegram.
 
-- `generate-demo` створює матеріал локально
-- `generate` також повертає demo-резерв, якщо ключ відсутній
-- `AI Test` у режимі Demo працює без `OPENAI_API_KEY`
-
-## Telegram workflow
+## Як працює Telegram workflow
 
 ### Публікація
 
-1. створи бота через `@BotFather`
-2. додай бота адміністратором у канал
-3. задай `TELEGRAM_BOT_TOKEN`
-4. задай `TELEGRAM_TARGET_CHANNEL`
+1. Створи бота через `@BotFather`.
+2. Додай бота адміністратором у канал.
+3. Задай `TELEGRAM_BOT_TOKEN`.
+4. Задай `TELEGRAM_TARGET_CHANNEL`.
 
 ### Читання каналів
 
@@ -318,24 +515,29 @@ Demo mode працює без ключа.
 docker compose run --rm app python -m app.telegram_login
 ```
 
-## Pipeline flow
+## Як працює AI processing flow
 
-1. користувач додає джерела
-2. запускає `Start News Collection`
-3. Celery збирає RSS і Telegram
-4. новини проходять фільтрацію
-5. створюються матеріали
-6. матеріали потрапляють у `Publishing Queue`
-7. матеріали підтверджуються або повертаються на редагування
-8. Telegram bot показує останній стан і дії
+1. Новина потрапляє до генерації.
+2. `OpenAIPostClient` перевіряє ключ.
+3. Якщо ключ є, використовується OpenAI.
+4. Якщо ключа немає, використовується demo fallback.
+5. Матеріал потрапляє в чергу публікації.
 
-## AI processing flow
+## `.env` і VS Code
 
-1. новина потрапляє до генерації
-2. `OpenAIPostClient` перевіряє ключ
-3. якщо ключ є - використовується OpenAI
-4. якщо ключа немає - використовується demo fallback
-5. матеріал потрапляє в чергу публікації
+Якщо реальний ключ не читається, найчастіша причина - неправильна робоча директорія запуску.
+
+У цьому проєкті вже налаштовано:
+
+- абсолютний шлях до `.env` у `app/config.py`
+- `python.envFile` у [.vscode/settings.json](./.vscode/settings.json)
+- окремий launch-профіль у [.vscode/launch.json](./.vscode/launch.json)
+
+Рекомендований порядок:
+
+1. Поклади `.env` у корінь репозиторію.
+2. Запусти backend з кореня проєкту або через VS Code profile.
+3. Якщо змінив `ADMIN_API_KEY`, очисти старий ключ у браузері.
 
 ## Корисні команди
 
@@ -344,6 +546,7 @@ docker compose build
 docker compose up -d
 docker compose ps
 docker compose logs --tail=80 app
+docker compose logs -f app
 docker compose exec app alembic upgrade head
 docker compose run --rm app pytest -q
 docker compose run --rm app python -m app.telegram_login
@@ -351,16 +554,32 @@ docker compose down
 docker compose down -v
 ```
 
-## Flower
+## Перевірка API
 
-Чергу Celery можна дивитися тут:
+```powershell
+Invoke-RestMethod http://localhost:8000/api/health
+Invoke-RestMethod http://localhost:8000/api/public-status
+```
 
-- `http://localhost:5555/`
+## Перевірка `ADMIN_API_KEY`
 
-## Adminer
+```powershell
+$headers = @{ "X-API-Key" = "твій_ADMIN_API_KEY" }
+Invoke-RestMethod -Uri http://localhost:8000/api/settings -Headers $headers
+```
 
-- `http://localhost:8082/`
+## Структура проєкту
 
-## Redis Commander
+- `app/main.py` - FastAPI і dashboard
+- `app/config.py` - читання `.env`
+- `app/api/endpoints.py` - API для dashboard
+- `app/tasks.py` - Celery pipeline
+- `app/news_parser/` - RSS і Telegram парсери
+- `app/ai/` - OpenAI клієнт і demo fallback
+- `app/telegram/` - Telegram bot і публікація
+- `app/frontend/` - dashboard UI
+- `alembic/` - міграції бази
 
-- `http://localhost:8081/`
+## Примітка про README
+
+Основний файл `README.md` лишається як короткий вхід, а повні інструкції збережені тут і в англійській версії.

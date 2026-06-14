@@ -66,6 +66,15 @@ def _pipeline_meta(stats: dict, stage_key: str, stage_state: str, stage_label: s
     return payload
 
 
+def _build_news_text(news: NewsItem) -> str:
+    """Повертає текст новини для Telegram, навіть якщо AI-пост ще не створено."""
+
+    text = (news.raw_text or news.summary or news.title or "").strip()
+    if text:
+        return text
+    return news.title
+
+
 @celery_app.task(name="app.tasks.parse_all_sources_task", bind=True)
 def parse_all_sources_task(self) -> dict:
     """Перший крок pipeline: зібрати новини з усіх увімкнених джерел."""
@@ -175,7 +184,7 @@ def generate_post_task(news_id: str) -> dict:
             return {"status": "skipped", "reason": "already published", "post_id": existing.id}
 
         try:
-            generated_text = generate_post_sync(text=news.raw_text or news.summary, title=news.title)
+            generated_text = generate_post_sync(text=_build_news_text(news), title=news.title)
             post = existing or Post(news_id=news.id, generated_text=generated_text)
             post.generated_text = generated_text
             auto_publish_posts = get_auto_publish_posts(db)
@@ -218,6 +227,10 @@ def publish_post_task(post_id: str) -> dict:
 
         try:
             read_url = post.news.url if post.news else None
+            if not (post.generated_text or "").strip() and post.news:
+                post.generated_text = generate_post_sync(text=_build_news_text(post.news), title=post.news.title)
+                db.add(post)
+                db.commit()
             asyncio.run(publish_to_telegram(post.generated_text, read_url=read_url, site_url=read_url))
             post.status = PostStatus.published
             post.published_at = utc_now()

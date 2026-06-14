@@ -15,11 +15,18 @@ def require_api_key(x_api_key: str | None = Header(default=None)) -> None:
     if not expected_key or expected_key in unsafe_placeholders:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="ADMIN_API_KEY must be changed in .env before using admin API",
+            detail=(
+                "ADMIN_API_KEY не налаштовано. "
+                "Перевірте .env, створіть новий ключ і перезапустіть backend."
+            ),
         )
 
     if x_api_key != expected_key:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid or missing X-API-Key",
+            detail=(
+                "ADMIN_API_KEY не підходить. "
+                "Перевірте, чи ключ збережений у фронтенді, чи збігається він з .env, "
+                "та чи перезапущено backend."
+            ),
         )

@@ -1,7 +1,15 @@
 import asyncio
 import logging
 
-from openai import APIError, APITimeoutError, AsyncOpenAI, RateLimitError
+from openai import (
+    APIError,
+    APITimeoutError,
+    AsyncOpenAI,
+    AuthenticationError,
+    BadRequestError,
+    PermissionDeniedError,
+    RateLimitError,
+)
 
 from app.config import get_settings
 
@@ -46,13 +54,31 @@ class OpenAIPostClient:
                     max_tokens=350,
                 )
                 return response.choices[0].message.content or ""
-            except (RateLimitError, APITimeoutError, APIError) as exc:
+            except (AuthenticationError, PermissionDeniedError) as exc:
+                raise RuntimeError(
+                    "OpenAI API Key недійсний. Перевірте правильність ключа, доступ до OpenAI та баланс акаунта."
+                ) from exc
+            except BadRequestError as exc:
+                raise RuntimeError(
+                    "Запит до OpenAI відхилено. Перевірте модель, налаштування акаунта та правильність ключа."
+                ) from exc
+            except RateLimitError as exc:
+                raise RuntimeError(
+                    "OpenAI тимчасово обмежив запити. Спробуйте ще раз трохи пізніше."
+                ) from exc
+            except APITimeoutError as exc:
+                raise RuntimeError(
+                    "OpenAI не відповів вчасно. Перевірте інтернет-з'єднання або повторіть спробу пізніше."
+                ) from exc
+            except APIError as exc:
                 last_error = exc
                 delay = 2**attempt
                 logger.warning("OpenAI error, retrying in %s seconds: %s", delay, exc)
                 await asyncio.sleep(delay)
 
-        raise RuntimeError(f"OpenAI generation failed after retries: {last_error}")
+        raise RuntimeError(
+            "Сервіс OpenAI тимчасово недоступний. Перевірте доступ до сервісу та спробуйте ще раз."
+        ) from last_error
 
     @staticmethod
     def _demo_post(text: str, title: str | None = None) -> str:

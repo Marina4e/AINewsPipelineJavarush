@@ -48,7 +48,7 @@
           <article class="mini-card">
             <h2>Ключ OpenAI API</h2>
             <p class="hint">Якщо ключ уже прочитано з середовища, вводити його повторно не потрібно. Кнопка робить реальний тестовий запит.</p>
-            <div id="openaiStatus" class="status">[WAIT] Завантаження...</div>
+            <div id="openaiStatus" class="status">Завантаження...</div>
             <button id="verifyOpenaiBtn" class="secondary" type="button" title="Перевіряє кінцеву точку OpenAI і показує реальний текст помилки">Перевірити ключ OpenAI</button>
             <pre id="openaiCheckResult" class="result-box"></pre>
           </article>
@@ -56,9 +56,6 @@
           <article class="mini-card">
             <h2>Telegram-бот</h2>
             <p class="hint">Токен бота і цільовий канал читаються з `.env`. Якщо вони є, панель не просить вводити їх повторно.</p>
-            <div id="telegramBotStatus" class="status">[WAIT] Завантаження...</div>
-            <div id="telegramChannelStatus" class="status">[WAIT] Завантаження...</div>
-            <div id="telegramReaderStatus" class="status">[WAIT] Завантаження...</div>
             <div class="button-row">
               <button id="showTelegramEnvBtn" class="secondary" type="button">Додати Bot Token / Target Channel</button>
               <a id="telegramChannelLink" class="link-button" href="#" target="_blank" rel="noreferrer" hidden>Відкрити канал</a>
@@ -75,52 +72,34 @@
 
       <details class="section" open>
         <summary>
-          <span>📰 Новини</span>
-          <small>Теми, ключові слова, RSS та Telegram джерела</small>
+          <span>📰 Тема новин</span>
+          <small>Теми й вибір джерел</small>
         </summary>
-        <div class="section-body compact-grid">
-          <article class="mini-card">
-            <h2>Теми</h2>
-            <p class="hint">Теми другорядні. Їх можна не вказувати для джерел.</p>
+        <div class="section-body source-layout">
+          <article class="mini-card topic-panel">
+            <h2>Тема новин</h2>
+            <p class="hint">Назва, опис і ключові слова. Джерела можуть бути без теми.</p>
             <form id="topicForm" class="stack">
               <input name="name" placeholder="Назва теми, наприклад AI" required />
               <textarea name="description" placeholder="Опис теми"></textarea>
-              <div class="button-row wrap">
-                <button class="secondary" type="button" data-topic-template="AI">Приклад AI</button>
-                <button class="secondary" type="button" data-topic-template="IT Ukraine">Приклад IT Україна</button>
-                <button class="secondary" type="button" data-topic-template="Business">Приклад Бізнес</button>
-                <button class="secondary" type="button" data-topic-template="Science">Приклад Наука</button>
-              </div>
-              <label class="check-row">
-                <input name="enabled" type="checkbox" checked />
-                <span>Активувати тему після збереження</span>
-              </label>
+              <select id="topicExampleSelect">
+                <option value="">Приклади тем</option>
+                <option value="AI">ШІ та автоматизація</option>
+                <option value="IT Ukraine">IT Україна</option>
+                <option value="Business">Бізнес і ринки</option>
+                <option value="Science">Наука і дослідження</option>
+                <option value="Technology">Технології</option>
+              </select>
+              <textarea name="keywords" placeholder="Ключові слова: ai, openai, машинне навчання"></textarea>
               <button id="saveTopicBtn" type="submit">Зберегти тему</button>
             </form>
-            <div id="topicSaveStatus" class="status slim">[WAIT] Очікує дії</div>
+            <div id="topicSaveStatus" class="status slim">Збережи тему</div>
             <div id="topicsList" class="list compact"></div>
           </article>
 
-          <article class="mini-card">
-            <h2>Ключові слова</h2>
-            <p class="hint">Ключові слова теж другорядні. Можна лишити порожніми.</p>
-            <form id="keywordForm" class="stack">
-              <textarea name="keywords" placeholder="ai, openai, машинне навчання"></textarea>
-              <select name="topic_id" id="keywordTopic"></select>
-              <div class="button-row wrap">
-                <button class="secondary" type="button" data-keyword-template="ai">Приклад AI</button>
-                <button class="secondary" type="button" data-keyword-template="rss">Приклад RSS</button>
-                <button class="secondary" type="button" data-keyword-template="telegram">Приклад Telegram</button>
-              </div>
-              <button id="saveKeywordBtn" type="submit">Зберегти ключові слова</button>
-            </form>
-            <div id="keywordSaveStatus" class="status slim">[WAIT] Очікує дії</div>
-            <div id="keywordsList" class="list compact"></div>
-          </article>
-
-          <article class="mini-card">
-            <h2>Джерела</h2>
-            <p class="hint">Основний блок. RSS і Telegram окремо. Джерела можна додавати без тем і без ключових слів.</p>
+          <article class="mini-card source-panel">
+            <h2>Додати джерела новин</h2>
+            <p class="hint">Вибери приклад або додай власний URL. RSS і Telegram працюють окремо.</p>
             <div class="tabs">
               <button id="sourceTabSite" class="tab active" type="button">RSS</button>
               <button id="sourceTabTg" class="tab" type="button">Телеграм</button>
@@ -135,27 +114,30 @@
               <div id="sourceUrlHint" class="hint"></div>
               <select name="topic_id" id="sourceTopic"></select>
               <input name="enabled" type="hidden" value="true" />
-              <div id="sourceEnabledLabel" class="status slim">[OK] Нове джерело буде активним після додавання.</div>
-              <button id="sourceSubmitBtn" type="submit">Додати RSS джерело</button>
+              <button id="sourceSubmitBtn" type="submit">Додати джерело</button>
             </form>
-            <div id="sourceSaveStatus" class="status slim">[WAIT] Очікує дії</div>
+            <div id="sourceSaveStatus" class="status slim"></div>
 
-            <details class="subdetails">
-              <summary>Перелік прикладів новин RSS</summary>
-              <div id="rssSuggestionsList" class="list compact"></div>
-            </details>
-            <details class="subdetails">
-              <summary>Перелік прикладів новин Telegram</summary>
-              <div id="telegramSuggestionsList" class="list compact"></div>
-            </details>
-            <div class="source-columns">
-              <section class="source-column">
-                <h3>Джерела RSS</h3>
-                <div id="rssSourcesList" class="list compact"></div>
+            <div class="source-columns source-catalogs">
+              <section class="source-column source-column--catalog">
+                <details class="subdetails" open>
+                  <summary>Перелік RSS джерел</summary>
+                  <div id="rssSuggestionsList" class="list compact"></div>
+                </details>
+                <details class="subdetails" open>
+                  <summary>Активні RSS джерела</summary>
+                  <div id="rssSourcesList" class="list compact"></div>
+                </details>
               </section>
-              <section class="source-column">
-                <h3>Джерела Telegram</h3>
-                <div id="telegramSourcesList" class="list compact"></div>
+              <section class="source-column source-column--catalog">
+                <details class="subdetails" open>
+                  <summary>Перелік Telegram джерел</summary>
+                  <div id="telegramSuggestionsList" class="list compact"></div>
+                </details>
+                <details class="subdetails" open>
+                  <summary>Активні Telegram джерела</summary>
+                  <div id="telegramSourcesList" class="list compact"></div>
+                </details>
               </section>
             </div>
           </article>
@@ -174,7 +156,9 @@
               <input id="autoPublishToggle" type="checkbox" />
             <span>Автоматично відправляти підтверджені пости ШІ в Telegram</span>
             </label>
-            <div id="deliveryStatus" class="status">[WAIT] Дій ще не було</div>
+            <div id="telegramConnectionStatus" class="status">Telegram не підключено</div>
+            <div id="telegramConnectionReason" class="status slim">Причина: Telegram ще не перевірено</div>
+            <div id="deliveryStatus" class="status">Дій ще не було</div>
             <p class="hint">Кнопки відправки нижче показують не лише `queued`, а й перевіряють задачу до завершення: виконано або помилка.</p>
           </article>
           <article class="mini-card">
@@ -197,12 +181,12 @@
           <details class="subdetails" open>
             <summary>Конвеєр: запуск і виконання</summary>
             <div class="subbody">
-              <div id="pipelineReadyStatus" class="status">[WAIT] Конвеєр очікує запуску</div>
+              <div id="pipelineReadyStatus" class="status">Конвеєр очікує запуску</div>
               <div class="button-row">
                 <button id="runPipelineBtn" type="button" title="Запускає конвеєр: джерела → новини → пости ШІ">Почати збір новин</button>
                 <button id="refreshPipelineBtn" class="secondary" type="button">Оновити статус</button>
               </div>
-              <div id="workflowStatus" class="status">[WAIT] Конвеєр очікує запуску</div>
+              <div id="workflowStatus" class="status">Конвеєр очікує запуску</div>
               <div id="pipelineStageList" class="stage-list"></div>
               <div id="pipelineResult" class="result-box"></div>
             </div>
@@ -211,20 +195,20 @@
           <details class="subdetails">
             <summary>RSS і Telegram джерела</summary>
             <div class="subbody status-grid">
-              <div id="rssReadyStatus" class="status">[WAIT] RSS очікує запуску</div>
-              <div id="telegramReadyStatus" class="status">[WAIT] Telegram очікує запуску</div>
+              <div id="rssReadyStatus" class="status">RSS очікує запуску</div>
+              <div id="telegramReadyStatus" class="status">Telegram очікує запуску</div>
             </div>
           </details>
 
           <details class="subdetails">
             <summary>Статус ШІ і пояснення</summary>
             <div class="subbody">
-              <div id="aiReadyStatus" class="status">[WAIT] ШІ очікує перевірки</div>
+              <div id="aiReadyStatus" class="status">ШІ очікує перевірки</div>
               <div class="legend">
-                <span>[OK] Готово — готовий до роботи</span>
-                <span>[RUN] Виконується — виконується</span>
-                <span>[WAIT] Очікує — очікує запуску</span>
-                <span>[ERROR] Помилка — помилка конфігурації або виконання</span>
+                <span>Готово — готовий до роботи</span>
+                <span>Виконується — виконується</span>
+                <span>Очікує — очікує запуску</span>
+                <span>Помилка — помилка конфігурації або виконання</span>
               </div>
             </div>
           </details>
@@ -270,7 +254,7 @@
               <select name="topic_id" id="manualNewsTopic"></select>
               <button id="createManualNewsBtn" type="submit">Створити чернетку</button>
             </form>
-            <div id="manualNewsStatus" class="status slim">[WAIT] Ручну новину ще не створювали</div>
+            <div id="manualNewsStatus" class="status slim">Ручну новину ще не створювали</div>
             </div>
           </details>
 
@@ -320,7 +304,7 @@
               </div>
               <button id="testAiBtn" type="submit">Перевірити ШІ</button>
             </form>
-            <div id="aiCheckStatus" class="status slim">[WAIT] Тест ще не запускали</div>
+            <div id="aiCheckStatus" class="status slim">Тест ще не запускали</div>
             <pre id="generateResult" class="result-box"></pre>
             </div>
           </details>

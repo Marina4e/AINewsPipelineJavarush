@@ -46,6 +46,23 @@ def _parse_datetime(value: str | None) -> datetime:
         return datetime.now(timezone.utc)
 
 
+def _entry_text(entry: dict) -> str:
+    """Витягує максимально повний текст новини з RSS/Atom entry."""
+
+    content_blocks = entry.get("content") or []
+    if content_blocks:
+        first = content_blocks[0] or {}
+        text = first.get("value") or first.get("summary")
+        if text:
+            return str(text).strip()
+
+    summary_detail = entry.get("summary_detail") or {}
+    if summary_detail.get("value"):
+        return str(summary_detail["value"]).strip()
+
+    return str(entry.get("summary") or entry.get("description") or entry.get("title") or "").strip()
+
+
 def fetch_site_news(source_name: str, feed_url: str, limit: int | None = None) -> list[ParsedNews]:
     """Парсить RSS/Atom стрічку сайту.
 
@@ -63,7 +80,7 @@ def fetch_site_news(source_name: str, feed_url: str, limit: int | None = None) -
     for entry in feed.entries[: limit or settings.default_news_limit]:
         title = entry.get("title", "Без назви")
         url = entry.get("link")
-        summary = entry.get("summary") or entry.get("description") or title
+        summary = _entry_text(entry) or title
         published_at = _parse_datetime(entry.get("published") or entry.get("updated"))
 
         items.append(
@@ -78,4 +95,3 @@ def fetch_site_news(source_name: str, feed_url: str, limit: int | None = None) -
         )
 
     return items
-

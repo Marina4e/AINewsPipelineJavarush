@@ -5,6 +5,7 @@ const state = {
   keywords: [],
   sources: [],
   sourceSuggestions: [],
+  customSourceSuggestions: readJson("customSourceSuggestions", { site: [], tg: [] }),
   news: [],
   posts: [],
   pipelineStatus: null,
@@ -12,6 +13,73 @@ const state = {
   sourceTab: "site",
   savedSearches: readJson("savedNewsSearches", []),
   taskTimers: new Map(),
+};
+
+const SOURCE_EXAMPLE_FALLBACKS = {
+  site: [
+    {
+      name: "BBC Technology",
+      url: "https://feeds.bbci.co.uk/news/technology/rss.xml",
+      topic_slug: "technology",
+      description: "Міжнародні технологічні новини у форматі RSS.",
+    },
+    {
+      name: "The Guardian Technology",
+      url: "https://www.theguardian.com/uk/technology/rss",
+      topic_slug: "technology",
+      description: "Технологічні матеріали The Guardian.",
+    },
+    {
+      name: "NASA Breaking News",
+      url: "https://www.nasa.gov/news-release/feed/",
+      topic_slug: "science",
+      description: "Офіційні новинні релізи NASA.",
+    },
+    {
+      name: "BBC Business",
+      url: "https://feeds.bbci.co.uk/news/business/rss.xml",
+      topic_slug: "business",
+      description: "Бізнес та економіка у форматі RSS.",
+    },
+    {
+      name: "TechCrunch",
+      url: "https://techcrunch.com/feed/",
+      topic_slug: "technology",
+      description: "Популярний RSS-фід про стартапи й технології.",
+    },
+  ],
+  tg: [
+    {
+      name: "DOU",
+      url: "@doucommunity",
+      topic_slug: "it-ukraine",
+      description: "Українська IT-спільнота, вакансії, події та новини DOU.",
+    },
+    {
+      name: "dev.ua",
+      url: "@devua",
+      topic_slug: "it-ukraine",
+      description: "Новини українського IT, стартапів і бізнесу.",
+    },
+    {
+      name: "IT Ukraine Association",
+      url: "@itukraine",
+      topic_slug: "it-ukraine",
+      description: "Офіційні новини та анонси IT Ukraine Association.",
+    },
+    {
+      name: "Джун в IT",
+      url: "@junior_it",
+      topic_slug: "career",
+      description: "Telegram-джерело для junior-friendly IT-контенту.",
+    },
+    {
+      name: "ШІ-двіж",
+      url: "@ai_dvizh",
+      topic_slug: "ai",
+      description: "Новини про штучний інтелект та нейромережі.",
+    },
+  ],
 };
 
 const $ = (selector) => document.querySelector(selector);
@@ -50,12 +118,16 @@ function formatDate(value) {
 }
 
 function statusMarkup(token, text) {
-  return `<span class="status-token">[${escapeHtml(token)}]</span>${escapeHtml(text)}`;
+  return escapeHtml(text);
 }
 
 function setStatus(selector, token, text) {
   const node = $(selector);
-  if (node) node.innerHTML = statusMarkup(token, text);
+  if (!node) return;
+  node.classList.remove("status--ok", "status--error", "status--wait", "status--run");
+  const tone = token === "OK" ? "status--ok" : token === "ERROR" ? "status--error" : token === "RUN" ? "status--run" : "status--wait";
+  node.classList.add(tone);
+  node.textContent = text;
 }
 
 function setText(selector, text) {
@@ -144,7 +216,21 @@ function topicOptions(includeEmpty = true) {
 }
 
 function topicIdBySlug(slug) {
-  const topic = state.topics.find((item) => normalize(item.slug) === normalize(slug));
+  const normalized = normalize(slug).toLowerCase();
+  const aliases = {
+    ai: ["ai", "ші", "шi", "ш і", "штучн", "інтелект"],
+    business: ["business", "бізнес", "економ"],
+    career: ["career", "кар'єр", "junior"],
+    science: ["science", "наука", "дослід", "космос"],
+    technology: ["technology", "tech", "технолог", "цифров"],
+    "it-ukraine": ["it-ukraine", "it укра", "іт укра", "it", "розроб", "dev"],
+  };
+  const topic = state.topics.find((item) => {
+    const itemSlug = normalize(item.slug).toLowerCase();
+    const itemName = normalize(item.name).toLowerCase();
+    const aliasesForSlug = aliases[normalized] || [];
+    return itemSlug === normalized || itemName === normalized || aliasesForSlug.some((part) => itemSlug.includes(part) || itemName.includes(part));
+  });
   return topic ? topic.id : "";
 }
 
@@ -157,11 +243,12 @@ function sourceHref(value) {
 }
 
 function sourceModeInfo(source) {
+  const isTelegram = source.type === "tg";
   if (source.last_error) {
     return {
       tone: "error",
       token: "ERROR",
-      status: "Джерело вимкнене",
+      status: isTelegram ? "Канал недоступний" : "Джерело вимкнене",
       nameClass: "source-name source-name--error",
     };
   }
@@ -169,14 +256,14 @@ function sourceModeInfo(source) {
     return {
       tone: "active",
       token: "OK",
-      status: "Джерело активне",
+      status: isTelegram ? "Канал запущено" : "Джерело активне",
       nameClass: "source-name source-name--active",
     };
   }
   return {
     tone: "disabled",
     token: "ERROR",
-    status: "Джерело вимкнене",
+    status: isTelegram ? "Канал недоступний" : "Джерело вимкнене",
     nameClass: "source-name source-name--disabled",
   };
 }
@@ -267,10 +354,30 @@ function renderTelegramStatus() {
   const publishingAvailable = Boolean(status.telegram_connected);
   const lastDelivery = status.last_successful_delivery_at ? formatDate(status.last_successful_delivery_at) : "немає";
 
-  setStatus("#telegramBotStatus", botOnline ? "OK" : "ERROR", botOnline ? "Бот онлайн" : "Бот офлайн");
-  setStatus("#telegramChannelStatus", channelAvailable ? "OK" : "ERROR", channelAvailable ? "Канал доступний" : "Канал недоступний");
-  setStatus("#telegramReaderStatus", publishingAvailable ? "OK" : "ERROR", publishingAvailable ? "Публікація доступна" : "Публікація недоступна");
+  setStatus(
+    "#telegramConnectionStatus",
+    publishingAvailable ? "OK" : "ERROR",
+    publishingAvailable ? "🟢 Telegram підключено" : "🔴 Telegram не підключено"
+  );
+
+  let reason = "Причина: Telegram підключено";
+  if (!botOnline && !channelAvailable) {
+    reason = "Причина: не налаштовано токен бота і цільовий канал у .env";
+  } else if (!botOnline) {
+    reason = "Причина: не налаштовано токен бота у .env";
+  } else if (!channelAvailable) {
+    reason = "Причина: не налаштовано цільовий канал у .env";
+  } else if (!publishingAvailable) {
+    reason = "Причина: бот не має доступу до каналу або канал недоступний";
+  }
+  setText("#telegramConnectionReason", reason);
   setStatus("#deliveryStatus", status.last_successful_delivery_at ? "OK" : "WAIT", `Остання успішна доставка: ${lastDelivery}`);
+
+  const envVisible = !publishingAvailable;
+  for (const selector of ["#showTelegramEnvBtn", "#telegramEnvBox", "#copyTelegramEnvLinesBtn"]) {
+    const node = $(selector);
+    if (node) node.hidden = !envVisible;
+  }
 
   const href = sourceHref(status.telegram_target_channel);
   for (const selector of ["#telegramChannelLink", "#telegramChannelLinkTop", "#telegramDeliveryLink"]) {
@@ -290,10 +397,14 @@ function renderTelegramStatus() {
 
 function renderTopicSelects() {
   const html = topicOptions(true);
-  for (const selector of ["#sourceTopic", "#keywordTopic", "#newsTopic", "#manualNewsTopic"]) {
+  for (const selector of ["#sourceTopic", "#newsTopic", "#manualNewsTopic"]) {
     const node = $(selector);
     if (node) node.innerHTML = html;
   }
+}
+
+function keywordsForTopic(topicId) {
+  return state.keywords.filter((item) => item.topic_id === topicId).map((item) => item.word);
 }
 
 function renderTopics() {
@@ -303,102 +414,79 @@ function renderTopics() {
   list.innerHTML =
     state.topics
       .map((topic) => {
-        const tone = topic.enabled ? "Topic Activated" : "Topic Not Activated";
+        const words = keywordsForTopic(topic.id);
         return `
           <div class="item topic-card ${topic.enabled ? "is-active" : "is-inactive"}">
-            <div class="item-title">${escapeHtml(topic.name)}</div>
-            <div class="muted">${escapeHtml(topic.description || "Без опису")}</div>
-            <div class="status slim">${statusMarkup(topic.enabled ? "OK" : "ERROR", tone)}</div>
+            <div class="topic-card-head">
+              <div>
+                <div class="item-title">${escapeHtml(topic.name)}</div>
+                <div class="muted">${escapeHtml(topic.description || "Без опису")}</div>
+              </div>
+              <div class="topic-card-state ${topic.enabled ? "is-active" : "is-inactive"}">${topic.enabled ? "Тему активовано" : "Тему не активовано"}</div>
+            </div>
+            <div class="topic-keywords">
+              ${words.length ? words.map((word) => `<span class="badge">${escapeHtml(word)}</span>`).join("") : '<span class="muted">Ключові слова не додано</span>'}
+            </div>
             <div class="item-actions">
-              <button class="secondary" data-toggle-topic="${escapeHtml(topic.id)}">${topic.enabled ? "Вимкнути" : "Активувати"}</button>
               <button class="danger" data-delete-topic="${escapeHtml(topic.id)}">Видалити</button>
             </div>
           </div>`;
       })
       .join("") || '<div class="item muted">Теми ще не додано.</div>';
-
-  setStatus("#topicSaveStatus", state.topics.length ? "OK" : "WAIT", state.topics.length ? `Теми: ${state.topics.length}` : "Теми ще не додано");
-}
-
-function renderKeywords() {
-  const list = $("#keywordsList");
-  if (!list) return;
-
-  list.innerHTML =
-    state.keywords
-      .map((keyword) => {
-        const topic = state.topics.find((item) => item.id === keyword.topic_id);
-        return `
-          <div class="item keyword-card">
-            <div class="item-title">${escapeHtml(keyword.word)}</div>
-            <div class="muted">${escapeHtml(topic ? topic.name : "Без теми")}</div>
-            <div class="item-actions">
-              <button class="danger" data-delete-keyword="${escapeHtml(String(keyword.id))}">Видалити</button>
-            </div>
-          </div>`;
-      })
-      .join("") || '<div class="item muted">Ключових слів ще не додано.</div>';
-
-  setStatus("#keywordSaveStatus", state.keywords.length ? "OK" : "WAIT", state.keywords.length ? `Ключових слів: ${state.keywords.length}` : "Ключових слів ще не додано");
 }
 
 function renderSourceFormState() {
   const type = selectedSourceType();
   const submit = $("#sourceSubmitBtn");
   const hint = $("#sourceUrlHint");
-  const label = $("#sourceEnabledLabel");
 
-  if (submit) submit.textContent = type === "tg" ? "Додати Telegram джерело" : "Додати RSS джерело";
+  if (submit) submit.textContent = "Додати джерело";
   if (hint) {
     hint.textContent =
       type === "tg"
         ? "Для Telegram вкажи @назва_каналу або посилання на канал."
         : "Для RSS вкажи повний URL стрічки.";
   }
-  if (label) {
-    label.innerHTML = statusMarkup("OK", "Нове джерело буде активним після додавання.");
+}
+
+function mergedSourceSuggestions(type) {
+  const base = state.sourceSuggestions.filter((item) => item.type === type);
+  const custom = state.customSourceSuggestions?.[type] || [];
+  const fallback = SOURCE_EXAMPLE_FALLBACKS[type] || [];
+  const seen = new Set();
+  const merged = [];
+
+  for (const item of [...custom, ...base, ...fallback]) {
+    const key = `${normalize(item.name).toLowerCase()}|${normalize(item.url).toLowerCase()}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    merged.push(item);
   }
+
+  return merged;
+}
+
+function renderSuggestionCard(item, index, type) {
+  return `
+    <div class="item suggestion-card">
+      <div class="item-title">${escapeHtml(item.name)}</div>
+      <div class="muted">${escapeHtml(item.description)}</div>
+      <div class="muted">${escapeHtml(item.url)}</div>
+      <div class="item-actions">
+        <button class="secondary" data-use-source-suggestion="${index}" data-suggestion-type="${type}">Вибрати приклад</button>
+      </div>
+    </div>`;
 }
 
 function renderSuggestions() {
-  const rssList = $("#rssSuggestionsList");
-  const tgList = $("#telegramSuggestionsList");
-  if (rssList) {
-    const items = state.sourceSuggestions.filter((item) => item.type === "site");
-    rssList.innerHTML =
-      items
-        .map(
-          (item, index) => `
-            <div class="item suggestion-card">
-            <div class="item-title">${escapeHtml(item.name)}</div>
-            <div class="muted">${escapeHtml(item.description)}</div>
-            <div class="muted">${escapeHtml(item.url)}</div>
-              <div class="item-actions">
-                <button class="secondary" data-fill-source-suggestion="${index}" data-suggestion-type="site">Вибрати приклад</button>
-                <button data-add-source-suggestion="${index}" data-suggestion-type="site">Додати у джерела</button>
-              </div>
-            </div>`
-        )
-        .join("") || '<div class="item muted">Прикладів RSS ще немає.</div>';
-  }
-  if (tgList) {
-    const items = state.sourceSuggestions.filter((item) => item.type === "tg");
-    tgList.innerHTML =
-      items
-        .map(
-          (item, index) => `
-            <div class="item suggestion-card">
-              <div class="item-title">${escapeHtml(item.name)}</div>
-              <div class="muted">${escapeHtml(item.description)}</div>
-              <div class="muted">${escapeHtml(item.url)}</div>
-              <div class="item-actions">
-                <button class="secondary" data-fill-source-suggestion="${index}" data-suggestion-type="tg">Вибрати приклад</button>
-                <button data-add-source-suggestion="${index}" data-suggestion-type="tg">Додати у джерела</button>
-              </div>
-            </div>`
-        )
-        .join("") || '<div class="item muted">Прикладів Telegram ще немає.</div>';
-  }
+  const renderGroup = (selector, type, emptyText) => {
+    const node = $(selector);
+    if (!node) return;
+    const items = mergedSourceSuggestions(type);
+    node.innerHTML = items.map((item, index) => renderSuggestionCard(item, index, type)).join("") || `<div class="item muted">${escapeHtml(emptyText)}</div>`;
+  };
+  renderGroup("#rssSuggestionsList", "site", "Прикладів RSS ще немає.");
+  renderGroup("#telegramSuggestionsList", "tg", "Прикладів Telegram ще немає.");
 }
 
 function renderSources() {
@@ -414,15 +502,13 @@ function renderSources() {
       <article class="item source-card source-card--${info.tone}">
         <div class="${info.nameClass}">${escapeHtml(source.name)}</div>
         <div class="source-url ${info.nameClass}">${escapeHtml(source.url)}</div>
-        <div class="status slim">${statusMarkup(info.token, info.status)}</div>
+        <div class="status slim ${info.tone === "active" ? "status--ok" : info.tone === "error" ? "status--error" : "status--wait"}">${statusMarkup(info.token, info.status)}</div>
         <div class="muted">Тема: ${escapeHtml(topic ? topic.name : "Без теми")}</div>
-        <div class="muted">Перевірка: ${escapeHtml(formatDate(source.last_checked_at))}</div>
-        <div class="muted">Успіх: ${escapeHtml(formatDate(source.last_success_at))}</div>
         ${source.last_error ? `<div class="error-box">🔴 Джерело недоступне<br />Причина: ${escapeHtml(source.last_error)}</div>` : ""}
         <div class="item-actions">
           ${href ? `<a class="link-button secondary" href="${escapeHtml(href)}" target="_blank" rel="noreferrer">Відкрити</a>` : ""}
-          <button class="secondary" data-toggle-source="${escapeHtml(source.id)}">${source.enabled ? "Вимкнути" : "Активувати"}</button>
           <button class="secondary" data-edit-source="${escapeHtml(source.id)}">Редагувати</button>
+          <button class="secondary" data-save-source-example="${escapeHtml(source.id)}">Додати до прикладів</button>
           <button class="danger" data-delete-source="${escapeHtml(source.id)}">Видалити</button>
         </div>
       </article>`;
@@ -469,16 +555,17 @@ function renderNews() {
               <article class="card news-card">
                 ${title}
                 <div class="muted">${escapeHtml(item.source)} · ${escapeHtml(formatDate(item.published_at))}</div>
+                <div class="status slim ${item.raw_text ? "status--ok" : "status--wait"}">${item.raw_text ? "Текст новини готовий" : "Текст новини не зчитано"}</div>
                 <p>${escapeHtml(item.summary)}</p>
               <div class="item-actions">
-                  <button data-edit-manual="${escapeHtml(item.id)}">Створити чернетку</button>
-                  <button class="secondary" data-improve-ai="${escapeHtml(item.id)}">Покращити ШІ</button>
-                  <button class="secondary" data-publish-site="${escapeHtml(item.id)}">На підтвердження</button>
-                  <button class="secondary" data-publish-telegram="${escapeHtml(item.id)}">У Telegram</button>
+                  <button data-edit-manual="${escapeHtml(item.id)}">Ручне редагування</button>
+                  <button class="secondary" data-improve-ai="${escapeHtml(item.id)}">AI-редагування</button>
+                  <button class="secondary" data-publish-site="${escapeHtml(item.id)}">На сайт</button>
+                  <button class="secondary" data-publish-telegram="${escapeHtml(item.id)}">Telegram</button>
                 </div>
               </article>`;
           })
-          .join("") || '<div class="item muted">Зібраних новин ще немає. Запусти збір новин.</div>';
+          .join("") || '<div class="item muted">Новини не знайдено. Перевірте джерела або запустіть збір новин.</div>';
     })
     .catch((error) => {
       list.innerHTML = `<div class="item muted">${escapeHtml(error.message)}</div>`;
@@ -508,8 +595,7 @@ function renderPosts() {
         filtered
           .map((post) => {
             const headline = post.news?.title || `Матеріал ${post.id.slice(0, 8)}`;
-            const statusText =
-              post.status === "published" ? "Опубліковано" : post.status === "failed" ? "Помилки" : "Очікує підтвердження";
+            const statusText = post.status === "published" ? "Опубліковано" : post.status === "failed" ? "Помилка" : "Очікує підтвердження";
             return `
               <article class="card queue-card">
                 <div class="item-title">${escapeHtml(headline)}</div>
@@ -519,9 +605,9 @@ function renderPosts() {
                 ${post.error ? `<div class="error-box">🔴 Помилка матеріалу<br />Причина: ${escapeHtml(post.error)}</div>` : ""}
                 <div class="item-actions">
                   <button data-focus-post="${escapeHtml(post.id)}">Редагувати вручну</button>
-                  <button class="secondary" data-confirm-post="${escapeHtml(post.id)}">Підтвердити та надіслати</button>
+                  <button class="secondary" data-confirm-post="${escapeHtml(post.id)}">Підтвердити</button>
                 </div>
-                <div class="status slim">${statusMarkup(post.status === "published" ? "OK" : post.status === "failed" ? "ERROR" : "WAIT", statusText)}</div>
+                <div class="status slim ${post.status === "published" ? "status--ok" : post.status === "failed" ? "status--error" : "status--wait"}">${statusMarkup(post.status === "published" ? "OK" : post.status === "failed" ? "ERROR" : "WAIT", statusText)}</div>
               </article>`;
           })
           .join("") || '<div class="item muted">Матеріалів немає. Перевір джерела або запусти збір новин.</div>';
@@ -626,7 +712,6 @@ async function loadPrivateData() {
 
   renderTopicSelects();
   renderTopics();
-  renderKeywords();
   renderSources();
   renderOpenAIStatus();
   renderTelegramStatus();
@@ -646,7 +731,6 @@ async function refreshAll() {
 
   if (!hasAdminKey()) {
     setHtml("#topicsList", '<div class="item muted">Додайте адмін-ключ API, щоб бачити теми.</div>');
-    setHtml("#keywordsList", '<div class="item muted">Додайте адмін-ключ API, щоб бачити ключові слова.</div>');
     setHtml("#rssSourcesList", '<div class="item muted">Додайте адмін-ключ API, щоб бачити RSS джерела.</div>');
     setHtml("#telegramSourcesList", '<div class="item muted">Додайте адмін-ключ API, щоб бачити Telegram джерела.</div>');
     setHtml("#newsList", '<div class="item muted">Додайте адмін-ключ API, щоб бачити новини.</div>');
@@ -656,6 +740,7 @@ async function refreshAll() {
     setStatus("#workflowStatus", "WAIT", "🔴 Конвеєр зупинено");
     renderSavedSearches();
     renderPipeline();
+    renderSuggestions();
     return;
   }
 
@@ -717,39 +802,27 @@ async function saveTopic(event) {
   const done = withButtonState($("#saveTopicBtn"), "Зберігаю...");
   const payload = Object.fromEntries(new FormData(event.target).entries());
   try {
-    await api("/api/topics/", {
+    const topic = await api("/api/topics/", {
       method: "POST",
       body: JSON.stringify({
         name: payload.name,
         description: payload.description || "",
-        enabled: payload.enabled === "on",
+        enabled: true,
       }),
     });
+    const keywords = splitKeywords(payload.keywords);
+    for (const word of keywords) {
+      await api("/api/keywords/", {
+        method: "POST",
+        body: JSON.stringify({ word, topic_id: topic.id }),
+      });
+    }
+    setStatus("#topicSaveStatus", "OK", "Тему активовано");
     done("success", "Збережено");
     await loadPrivateData();
   } catch (error) {
     done("error", "Помилка");
     setStatus("#topicSaveStatus", "ERROR", error.message);
-  }
-}
-
-async function saveKeywords(event) {
-  event.preventDefault();
-  const done = withButtonState($("#saveKeywordBtn"), "Зберігаю...");
-  const payload = Object.fromEntries(new FormData(event.target).entries());
-  const words = splitKeywords(payload.keywords);
-  try {
-    for (const word of words) {
-      await api("/api/keywords/", {
-        method: "POST",
-        body: JSON.stringify({ word, topic_id: payload.topic_id || null }),
-      });
-    }
-    done("success", "Збережено");
-    await loadPrivateData();
-  } catch (error) {
-    done("error", "Помилка");
-    setStatus("#keywordSaveStatus", "ERROR", error.message);
   }
 }
 
@@ -762,6 +835,12 @@ async function createSource(event) {
 async function submitSourceForm(form) {
   const done = withButtonState($("#sourceSubmitBtn"), "Додаю...");
   const payload = Object.fromEntries(new FormData(form).entries());
+  const status = $("#sourceSaveStatus");
+  if (status) {
+    status.classList.remove("status--ok", "status--error");
+    status.classList.add("status--wait", "is-loading");
+    status.textContent = "Додавання джерела";
+  }
   try {
     await api("/api/sources/", {
       method: "POST",
@@ -773,12 +852,17 @@ async function submitSourceForm(form) {
         enabled: true,
       }),
     });
+    form.reset();
+    state.sourceTab = payload.type || "site";
+    renderSourceTabs();
     done("success", "Додано");
-    setStatus("#sourceSaveStatus", "OK", "Джерело додано до списку");
+    setStatus("#sourceSaveStatus", "OK", "Джерело додано");
     await loadPrivateData();
   } catch (error) {
     done("error", "Помилка");
     setStatus("#sourceSaveStatus", "ERROR", error.message);
+  } finally {
+    if (status) status.classList.remove("is-loading");
   }
 }
 
@@ -797,11 +881,6 @@ async function removeSource(sourceId) {
 
 async function removeTopic(topicId) {
   await api(`/api/topics/${topicId}`, { method: "DELETE" });
-  await loadPrivateData();
-}
-
-async function removeKeyword(keywordId) {
-  await api(`/api/keywords/${keywordId}`, { method: "DELETE" });
   await loadPrivateData();
 }
 
@@ -910,32 +989,40 @@ function applyTopicTemplate(key) {
   const form = $("#topicForm");
   if (!form) return;
   const templates = {
-    "AI": { name: "AI", description: "Новини про штучний інтелект, моделі та автоматизацію." },
-    "IT Ukraine": { name: "IT Україна", description: "Український IT-ринок, стартапи та події." },
-    "Business": { name: "Бізнес", description: "Бізнес, компанії, ринки та економіка." },
-    "Science": { name: "Наука", description: "Наука, дослідження, космос та відкриття." },
+    AI: {
+      name: "AI",
+      description: "Новини про штучний інтелект, моделі та автоматизацію.",
+      keywords: "ai, openai, машинне навчання, автоматизація",
+    },
+    "IT Ukraine": {
+      name: "IT Україна",
+      description: "Український IT-ринок, стартапи та події.",
+      keywords: "it, ukraine, startup, dev",
+    },
+    Business: {
+      name: "Бізнес",
+      description: "Бізнес, компанії, ринки та економіка.",
+      keywords: "business, finance, market, economy",
+    },
+    Science: {
+      name: "Наука",
+      description: "Наука, дослідження, космос та відкриття.",
+      keywords: "science, research, space, discovery",
+    },
+    Technology: {
+      name: "Технології",
+      description: "Технологічні новини, сервіси та цифрові продукти.",
+      keywords: "technology, gadgets, software, platform",
+    },
   };
   const template = templates[key];
   if (!template) return;
   form.name.value = template.name;
   form.description.value = template.description;
-  form.enabled.checked = true;
+  form.keywords.value = template.keywords;
 }
 
-function applyKeywordTemplate(key) {
-  const form = $("#keywordForm");
-  if (!form) return;
-  const templates = {
-    ai: "ai, openai, машинне навчання, автоматизація",
-    rss: "rss, feed, news, updates",
-    telegram: "telegram, channel, bot, message",
-  };
-  form.keywords.value = templates[key] || "";
-}
-
-function fillSourceFromSuggestion(index, type) {
-  const suggestions = state.sourceSuggestions.filter((item) => item.type === type);
-  const suggestion = suggestions[index];
+function fillSourceFromSuggestion(suggestion, type) {
   if (!suggestion) return;
 
   const form = $("#sourceForm");
@@ -950,10 +1037,38 @@ function fillSourceFromSuggestion(index, type) {
   form.scrollIntoView({ behavior: "smooth", block: "center" });
 }
 
-async function addSourceSuggestion(index, type) {
-  fillSourceFromSuggestion(index, type);
+function saveSourceToExamples(sourceId) {
+  const source = state.sources.find((item) => item.id === sourceId);
+  if (!source) return;
+  const type = source.type === "tg" ? "tg" : "site";
+  const bucket = Array.isArray(state.customSourceSuggestions?.[type]) ? [...state.customSourceSuggestions[type]] : [];
+  const payload = {
+    name: source.name,
+    url: source.url,
+    topic_slug: state.topics.find((item) => item.id === source.topic_id)?.slug || "",
+    description: `Користувацький приклад: ${source.name}`,
+    type,
+  };
+  const key = `${normalize(payload.name).toLowerCase()}|${normalize(payload.url).toLowerCase()}`;
+  if (!bucket.some((item) => `${normalize(item.name).toLowerCase()}|${normalize(item.url).toLowerCase()}` === key)) {
+    bucket.unshift(payload);
+  }
+  state.customSourceSuggestions = {
+    ...(state.customSourceSuggestions || {}),
+    [type]: bucket,
+  };
+  writeJson("customSourceSuggestions", state.customSourceSuggestions);
+  renderSuggestions();
+}
+
+async function useSourceSuggestion(index, type, button) {
+  const suggestions = mergedSourceSuggestions(type);
+  const suggestion = suggestions[index];
+  fillSourceFromSuggestion(suggestion, type);
   const form = $("#sourceForm");
   if (!form) return;
+  const details = button?.closest("details");
+  if (details) details.open = false;
   await submitSourceForm(form);
 }
 
@@ -1017,7 +1132,7 @@ async function copyTelegramEnvLines() {
     done("success", "Скопійовано");
   } catch (error) {
     done("error", "Помилка");
-    setStatus("#telegramBotStatus", "ERROR", error.message);
+    setStatus("#telegramConnectionStatus", "ERROR", error.message);
   }
 }
 
@@ -1116,7 +1231,6 @@ function bindEvents() {
   });
 
   $("#topicForm")?.addEventListener("submit", (event) => saveTopic(event));
-  $("#keywordForm")?.addEventListener("submit", (event) => saveKeywords(event));
   $("#sourceForm")?.addEventListener("submit", (event) => createSource(event));
   $("#manualNewsForm")?.addEventListener("submit", (event) => createManualNews(event));
   $("#generateForm")?.addEventListener("submit", (event) => testAi(event));
@@ -1125,47 +1239,26 @@ function bindEvents() {
   $("#refreshPostsBtn")?.addEventListener("click", () => renderPosts());
   $("#postStatusFilter")?.addEventListener("change", () => renderPosts());
   $("#searchExampleSelect")?.addEventListener("change", (event) => setSearchExample(event.target.value));
+  $("#topicExampleSelect")?.addEventListener("change", (event) => applyTopicTemplate(event.target.value));
 
   document.body.addEventListener("click", (event) => {
     const target = event.target.closest("button, a");
     if (!target) return;
 
     if (target.dataset.topicTemplate) return applyTopicTemplate(target.dataset.topicTemplate);
-    if (target.dataset.keywordTemplate) return applyKeywordTemplate(target.dataset.keywordTemplate);
 
-    if (target.dataset.fillSourceSuggestion) {
-      return fillSourceFromSuggestion(Number(target.dataset.fillSourceSuggestion), target.dataset.suggestionType || "site");
-    }
-
-    if (target.dataset.addSourceSuggestion) {
-      const index = Number(target.dataset.addSourceSuggestion);
+    if (target.dataset.useSourceSuggestion) {
+      const index = Number(target.dataset.useSourceSuggestion);
       const type = target.dataset.suggestionType || "site";
-      return addSourceSuggestion(index, type).catch((error) => setStatus("#sourceSaveStatus", "ERROR", error.message));
+      return useSourceSuggestion(index, type, target).catch((error) => setStatus("#sourceSaveStatus", "ERROR", error.message));
     }
 
-    if (target.dataset.toggleTopic) {
-      const topic = state.topics.find((item) => item.id === target.dataset.toggleTopic);
-      if (!topic) return;
-      return api(`/api/topics/${topic.id}`, {
-        method: "PATCH",
-        body: JSON.stringify({ enabled: !topic.enabled }),
-      })
-        .then(loadPrivateData)
-        .catch((error) => setStatus("#topicSaveStatus", "ERROR", error.message));
+    if (target.dataset.saveSourceExample) {
+      return saveSourceToExamples(target.dataset.saveSourceExample);
     }
 
     if (target.dataset.deleteTopic) {
       return removeTopic(target.dataset.deleteTopic).catch((error) => setStatus("#topicSaveStatus", "ERROR", error.message));
-    }
-
-    if (target.dataset.deleteKeyword) {
-      return removeKeyword(target.dataset.deleteKeyword).catch((error) => setStatus("#keywordSaveStatus", "ERROR", error.message));
-    }
-
-    if (target.dataset.toggleSource) {
-      const source = state.sources.find((item) => item.id === target.dataset.toggleSource);
-      if (!source) return;
-      return updateSource(source.id, { enabled: !source.enabled }).catch((error) => setStatus("#sourceSaveStatus", "ERROR", error.message));
     }
 
     if (target.dataset.editSource) {

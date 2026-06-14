@@ -1,23 +1,17 @@
 # AI News Pipeline
 
-AI News Pipeline collects news from RSS feeds and Telegram channels, stores the data in PostgreSQL, prepares materials with AI or manual editing, and publishes them to Telegram after dashboard approval.
+AI News Pipeline collects news from RSS and Telegram, stores it in PostgreSQL, prepares materials through AI or manual editing, and publishes approved content to Telegram.
 
 The project is designed so that AI is optional:
 
 - the platform works without `OPENAI_API_KEY`
-- demo mode is available everywhere it matters
-- `.env` is loaded from the repository root, so VS Code and Docker use the same configuration
+- demo mode is available wherever it matters
+- `.env` is loaded from the repository root, so VS Code, Docker, and the terminal use the same configuration
 
-## Stack
+## Documentation
 
-- FastAPI
-- PostgreSQL
-- Redis
-- Celery
-- Flower
-- Telegram Bot
-- OpenAI
-- Docker
+- [README.md](README.md)
+- [README_UA.md](README_UA.md)
 
 ## Quick Start
 
@@ -54,20 +48,52 @@ docker compose ps
 
 - `http://localhost:8000/`
 
-## `.env` and VS Code
+## Important: `ADMIN_API_KEY`
 
-If a key is real but is not being read, the usual cause is the process working directory.
+`ADMIN_API_KEY` is stored only in `.env` at the repository root.
 
-This repository already fixes that with:
+Frontend:
 
-- an absolute `.env` path in `app/config.py`
-- `python.envFile` in [.vscode/settings.json](./.vscode/settings.json)
-- a launch profile in [.vscode/launch.json](./.vscode/launch.json)
+- does not hardcode the key
+- stores it only temporarily in browser `sessionStorage`
+- sends it in the `X-API-Key` header
 
-So the usual setup is:
+Backend:
 
-1. place `.env` in the repository root
-2. run the app from the root folder or from the VS Code profile
+- reads the key from `.env`
+- compares it with the `X-API-Key` header
+- returns human-readable messages if the key is missing or invalid
+
+### How to generate `ADMIN_API_KEY`
+
+Use a long random secret.
+
+PowerShell:
+
+```powershell
+$bytes = New-Object byte[] 32
+[System.Security.Cryptography.RandomNumberGenerator]::Fill($bytes)
+[Convert]::ToBase64String($bytes)
+```
+
+Alternative with Python:
+
+```powershell
+python -c "import secrets; print(secrets.token_urlsafe(32))"
+```
+
+### Where to store `ADMIN_API_KEY`
+
+1. Put the value into `.env` in the repository root.
+2. Restart the backend:
+
+```powershell
+docker compose up -d
+```
+
+3. Open the dashboard and paste the same key into the access field.
+
+If you change the key in `.env`, the browser `sessionStorage` will not update automatically, so the old dashboard key must be replaced manually.
 
 ## Environment Variables
 
@@ -101,7 +127,419 @@ So the usual setup is:
 - `DEFAULT_NEWS_LIMIT`
 - `ALLOWED_LANGUAGES`
 
-## Start, Stop, Reset
+## Project Architecture
+
+- `app/main.py` - FastAPI entrypoint and dashboard
+- `app/config.py` - `.env` loading
+- `app/api/endpoints.py` - dashboard API
+- `app/tasks.py` - Celery pipeline
+- `app/news_parser/` - RSS and Telegram parsers
+- `app/ai/` - OpenAI client and demo fallback
+- `app/telegram/` - Telegram bot and publishing
+- `app/frontend/` - dashboard UI
+- `alembic/` - database migrations
+
+## Services and Ports
+
+### AI News Frontend
+
+- URL: `http://localhost:8000/`
+- Port: `8000`
+- Purpose: dashboard UI, source management, news review, publishing queue, and status overview
+- Start command:
+
+```powershell
+docker compose up -d app
+```
+
+- Check command:
+
+```powershell
+Invoke-WebRequest -Uri http://localhost:8000/ -UseBasicParsing
+```
+
+### FastAPI Backend
+
+- URL: `http://localhost:8000/`
+- Port: `8000`
+- Purpose: REST API, dashboard backend, key checks, pipeline control
+- Start command:
+
+```powershell
+docker compose up -d app
+```
+
+- Check command:
+
+```powershell
+Invoke-RestMethod http://localhost:8000/api/health
+Invoke-RestMethod http://localhost:8000/api/public-status
+```
+
+### PostgreSQL
+
+- URL: `postgresql://localhost:5432`
+- Port: `5432`
+- Purpose: primary data store
+- Start command:
+
+```powershell
+docker compose up -d postgres
+```
+
+- Check command:
+
+```powershell
+docker compose exec postgres pg_isready -U $env:POSTGRES_USER -d $env:POSTGRES_DB
+```
+
+### Redis
+
+- URL: `redis://localhost:6379`
+- Port: `6379`
+- Purpose: Celery broker and result backend
+- Start command:
+
+```powershell
+docker compose up -d redis
+```
+
+- Check command:
+
+```powershell
+docker compose exec redis redis-cli ping
+```
+
+### Celery Worker
+
+- URL: no separate URL
+- Port: no separate port
+- Purpose: executes pipeline tasks, generation, and publishing jobs
+- Start command:
+
+```powershell
+docker compose up -d app
+```
+
+- Check command:
+
+```powershell
+docker compose logs --tail=80 app
+```
+
+### Celery Beat
+
+- URL: no separate URL
+- Port: no separate port
+- Purpose: scheduled task runner
+- Start command:
+
+```powershell
+docker compose up -d app
+```
+
+- Check command:
+
+```powershell
+docker compose logs --tail=80 app
+```
+
+### Flower
+
+- URL: `http://localhost:5555/`
+- Port: `5555`
+- Purpose: web UI for Celery queues and tasks
+- Start command:
+
+```powershell
+docker compose up -d flower
+```
+
+- Check command:
+
+```powershell
+Invoke-WebRequest -Uri http://localhost:5555/ -UseBasicParsing
+```
+
+### Adminer
+
+- URL: `http://localhost:8082/`
+- Port: `8082`
+- Purpose: web client for PostgreSQL
+- Start command:
+
+```powershell
+docker compose up -d adminer
+```
+
+- Check command:
+
+```powershell
+Invoke-WebRequest -Uri http://localhost:8082/ -UseBasicParsing
+```
+
+### Redis Commander
+
+- URL: `http://localhost:8081/`
+- Port: `8081`
+- Purpose: web UI for Redis
+- Start command:
+
+```powershell
+docker compose up -d redis-commander
+```
+
+- Check command:
+
+```powershell
+Invoke-WebRequest -Uri http://localhost:8081/ -UseBasicParsing
+```
+
+### Telegram Bot
+
+- URL: no separate URL
+- Port: no separate port
+- Purpose: publishes approved materials to Telegram and reports latest status
+- Start command:
+
+```powershell
+docker compose up -d app
+```
+
+- Check command:
+
+```powershell
+docker compose logs --tail=80 app
+Invoke-RestMethod http://localhost:8000/api/public-status
+```
+
+### OpenAI
+
+- URL: `https://api.openai.com/`
+- Port: `443`
+- Purpose: AI-based material generation
+- Start command:
+
+```powershell
+docker compose up -d app
+```
+
+- Check command:
+
+```powershell
+Invoke-RestMethod -Uri http://localhost:8000/api/openai/check -Headers @{ "X-API-Key" = "your_ADMIN_API_KEY" } -Method Post
+```
+
+### Docker Compose
+
+- URL: not applicable
+- Port: not applicable
+- Purpose: orchestrates all containers
+- Start command:
+
+```powershell
+docker compose build
+docker compose up -d
+```
+
+- Check command:
+
+```powershell
+docker compose ps
+docker compose logs --tail=80 app
+```
+
+## Dashboard
+
+The dashboard is organized into these blocks:
+
+- Configuration
+- News
+- Telegram Delivery
+- System Status
+- Publishing and Manual Mode
+
+### Configuration
+
+The block has its own color, and the subblocks are visually separated:
+
+- Admin API - blue
+- OpenAI - purple
+- Telegram - light blue
+
+### News Topic
+
+Single simplified block:
+
+- Topic name
+- Description
+- Keywords
+- A dropdown with topic examples
+- `Save Topic` button
+
+After saving, the UI shows:
+
+- `Тему активовано`
+- `Тему не активовано`
+
+### News Sources
+
+Two separate catalogs:
+
+- RSS Sources
+- Telegram Sources
+
+Each catalog has at least 5 examples.
+
+After selecting an example, the following fields are filled automatically:
+
+- name
+- address
+- topic
+
+After adding a source, the name and address are highlighted in green.
+
+For Telegram sources the status shows:
+
+- `Канал запущено`
+- `Канал недоступний`
+
+### News
+
+If no news exists, the UI shows a clear message:
+
+`Новини не знайдено. Перевірте джерела або запустіть збір новин.`
+
+Each news card includes these actions:
+
+- `Створити чернетку`
+- `Покращити ШІ`
+- `На підтвердження`
+- `У Telegram`
+
+### Pipeline
+
+Buttons:
+
+- `Почати збір новин`
+- `Оновити статус`
+
+The status area shows:
+
+- `🟢 Конвеєр працює`
+- `🔴 Конвеєр зупинено`
+
+And these execution stages:
+
+- Pipeline Started
+- RSS Processing
+- Telegram Processing
+- AI Processing
+- Post Generation
+- Publishing
+- Completed
+
+### Telegram
+
+If Telegram is already configured through `.env`, the `Bot Token` and `Target Channel` fields are not shown.
+
+Only these statuses remain visible:
+
+- `🟢 Telegram підключено`
+- `🔴 Telegram не підключено`
+
+If the connection is missing, the UI shows a human-readable reason:
+
+- bot token is not set
+- target channel is not set
+- the bot has no access to the channel
+
+### OpenAI
+
+The OpenAI section shows:
+
+- `OpenAI API Key`
+- `🟢 OpenAI підключено`
+- `🔴 OpenAI не підключено`
+
+The check button does not require logs and returns a plain-language result.
+
+### AI Test
+
+Fields:
+
+- AI Prompt
+- Mode
+
+Modes:
+
+- Demo
+- OpenAI
+
+Button:
+
+- `Перевірити ШІ`
+
+Demo mode works without a key.
+
+## Pipeline Flow
+
+1. The user adds sources.
+2. The user starts `Почати збір новин`.
+3. Celery collects RSS and Telegram items.
+4. News items are filtered.
+5. Materials are created.
+6. Materials move into the approval queue.
+7. Materials can be edited manually or with AI.
+8. After approval, the material is sent to Telegram.
+
+## Telegram Workflow
+
+### Publishing
+
+1. Create a bot with `@BotFather`.
+2. Add the bot as an administrator to your channel.
+3. Set `TELEGRAM_BOT_TOKEN`.
+4. Set `TELEGRAM_TARGET_CHANNEL`.
+
+### Reading channels
+
+For Telegram source reading, set:
+
+- `TELEGRAM_API_ID`
+- `TELEGRAM_API_HASH`
+
+Then authenticate once:
+
+```powershell
+docker compose run --rm app python -m app.telegram_login
+```
+
+## AI Processing Flow
+
+1. A news item enters generation.
+2. `OpenAIPostClient` checks the configured key.
+3. If a key exists, OpenAI is used.
+4. If no key exists, the demo fallback is used.
+5. The material is placed in the publishing queue.
+
+## `.env` and VS Code
+
+If a real key is not being read, the most common cause is the process working directory.
+
+This project already fixes that with:
+
+- an absolute `.env` path in `app/config.py`
+- `python.envFile` in [.vscode/settings.json](./.vscode/settings.json)
+- a launch profile in [.vscode/launch.json](./.vscode/launch.json)
+
+Recommended setup:
+
+1. Put `.env` in the repository root.
+2. Run the backend from the repository root or through the VS Code profile.
+3. If you changed `ADMIN_API_KEY`, clear the old key in the browser.
+
+## Useful Commands
 
 ```powershell
 docker compose build
@@ -109,6 +547,9 @@ docker compose up -d
 docker compose ps
 docker compose logs --tail=80 app
 docker compose logs -f app
+docker compose exec app alembic upgrade head
+docker compose run --rm app pytest -q
+docker compose run --rm app python -m app.telegram_login
 docker compose down
 docker compose down -v
 ```
@@ -129,7 +570,7 @@ Invoke-RestMethod -Uri http://localhost:8000/api/settings -Headers $headers
 
 ## Project Structure
 
-- `app/main.py` - FastAPI entrypoint and dashboard
+- `app/main.py` - FastAPI and dashboard
 - `app/config.py` - `.env` loading
 - `app/api/endpoints.py` - dashboard API
 - `app/tasks.py` - Celery pipeline
@@ -139,225 +580,6 @@ Invoke-RestMethod -Uri http://localhost:8000/api/settings -Headers $headers
 - `app/frontend/` - dashboard UI
 - `alembic/` - database migrations
 
-## Dashboard
+## Note About README
 
-The dashboard is organized into these blocks:
-
-- Access
-- OpenAI
-- AI Test
-- Topics
-- Keywords
-- News Sources
-- News Pipeline
-- Collected News
-- Publishing Queue
-- Telegram Bot
-
-### News Sources
-
-There are two separate catalogs:
-
-- RSS Sources
-- Telegram Sources
-
-The Telegram catalog uses the `Add News Channel` button.
-
-Each source card shows:
-
-- name
-- URL
-- status
-- last error
-- last checked time
-- last success time
-
-### Topics and Keywords
-
-Topics and keywords are separated.
-
-Topic:
-
-- name
-- description
-
-Keywords:
-
-- comma-separated
-- optional
-- can be saved without attaching them to a topic
-
-### News Pipeline
-
-The pipeline displays these stages:
-
-- Pipeline Started
-- RSS Processing
-- Telegram Processing
-- AI Processing
-- Post Generation
-- Publishing
-- Completed
-
-The status area shows:
-
-- `🟢 Pipeline Running`
-- `🔴 Pipeline Stopped`
-
-`News Collection Completed` appears only after all stages finish.
-
-### Collected News
-
-Each news card shows:
-
-- Title
-- Source
-- Date
-- Summary
-
-Clicking the title opens the full article.
-
-Available actions:
-
-- Edit Manually
-- Improve with AI
-- Publish to Website
-- Publish to Telegram
-
-### Publishing Queue
-
-The queue contains:
-
-- AI-generated posts
-- manually edited posts
-
-Filters:
-
-- Pending Approval
-- Published
-- Errors
-- All
-
-Empty state:
-
-`No materials available. Check sources or start news collection.`
-
-### Telegram Bot
-
-After `/start`, the bot shows:
-
-- Status
-- Latest News
-- Latest Material
-- Approve Publication
-- Return for Editing
-
-Status includes:
-
-- Bot Online / Offline
-- Channel Available / Unavailable
-- Publishing Available / Unavailable
-- Last Successful Delivery
-
-### OpenAI
-
-The OpenAI section shows:
-
-- OpenAI API Key
-- 🟢 OpenAI Connected
-- 🔴 OpenAI Not Connected
-
-### AI Test
-
-Fields:
-
-- AI Prompt
-- Mode
-
-Modes:
-
-- Demo
-- OpenAI
-
-Button:
-
-- `🤖 Test AI`
-
-Demo mode works without a real API key.
-
-## AI Without OpenAI
-
-The platform does not depend on OpenAI:
-
-- `generate-demo` creates a local draft
-- `generate` falls back to demo output when the key is missing
-- the AI test works in Demo mode without `OPENAI_API_KEY`
-
-## Telegram Workflow
-
-### Publishing
-
-1. create a bot with `@BotFather`
-2. add the bot as an administrator to your channel
-3. set `TELEGRAM_BOT_TOKEN`
-4. set `TELEGRAM_TARGET_CHANNEL`
-
-The app does not create Telegram channels for you. Create the channel in Telegram and then point `TELEGRAM_TARGET_CHANNEL` to it.
-
-### Reading channels
-
-To read Telegram sources, configure:
-
-- `TELEGRAM_API_ID`
-- `TELEGRAM_API_HASH`
-
-Then authenticate once:
-
-```powershell
-docker compose run --rm app python -m app.telegram_login
-```
-
-## Pipeline Flow
-
-1. add sources
-2. start `Start News Collection`
-3. Celery collects RSS and Telegram sources
-4. news items are filtered
-5. materials are created
-6. materials move into `Publishing Queue`
-7. materials are approved or returned for editing
-8. the Telegram bot reports the latest state and actions
-
-## AI Processing Flow
-
-1. a news item enters generation
-2. `OpenAIPostClient` checks the configured key
-3. if a key exists, OpenAI is used
-4. if no key exists, the demo fallback is used
-5. the material is placed in the publishing queue
-
-## Useful Commands
-
-```powershell
-docker compose build
-docker compose up -d
-docker compose ps
-docker compose logs --tail=80 app
-docker compose exec app alembic upgrade head
-docker compose run --rm app pytest -q
-docker compose run --rm app python -m app.telegram_login
-docker compose down
-docker compose down -v
-```
-
-## Flower
-
-- `http://localhost:5555/`
-
-## Adminer
-
-- `http://localhost:8082/`
-
-## Redis Commander
-
-- `http://localhost:8081/`
+The main `README.md` remains the short entry point, while the full instructions are preserved here and in the Ukrainian version.

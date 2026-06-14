@@ -303,9 +303,13 @@ async def generate_manually(payload: GenerateRequest) -> GenerateResponse:
             force_demo=payload.mode == "demo",
         )
         return GenerateResponse(generated_text=generated)
+    except RuntimeError as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
     except Exception as exc:
-        # Frontend має показувати зрозумілу причину, а не Internal Server Error.
-        raise HTTPException(status_code=502, detail=f"AI generation failed: {exc}") from exc
+        raise HTTPException(
+            status_code=502,
+            detail="Не вдалося згенерувати матеріал. Перевірте OpenAI або використайте Demo-режим.",
+        ) from exc
 
 
 @router.post("/openai/check", response_model=OpenAICheckResponse, dependencies=[AdminOnly])
@@ -315,7 +319,7 @@ async def check_openai_key() -> OpenAICheckResponse:
         return OpenAICheckResponse(
             ok=False,
             status="missing",
-            message="OpenAI API key не знайдено в environment.",
+            message="OpenAI API Key не знайдено у .env.",
         )
 
     try:
@@ -327,14 +331,20 @@ async def check_openai_key() -> OpenAICheckResponse:
         return OpenAICheckResponse(
             ok=True,
             status="verified",
-            message="OpenAI API key успішно перевірено реальним запитом.",
+            message="OpenAI API Key успішно перевірено реальним запитом.",
             generated_text=generated,
+        )
+    except RuntimeError as exc:
+        return OpenAICheckResponse(
+            ok=False,
+            status="error",
+            message=str(exc),
         )
     except Exception as exc:
         return OpenAICheckResponse(
             ok=False,
             status="error",
-            message=f"OpenAI API key знайдено, але тестовий запит не пройшов: {exc}",
+            message="OpenAI API Key недійсний або сервіс тимчасово недоступний.",
         )
 
 
