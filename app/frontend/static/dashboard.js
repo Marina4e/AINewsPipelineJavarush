@@ -13,7 +13,8 @@ const state = {
   errorLogs: [],
   pipelineStatus: null,
   pipelineTaskId: sessionStorage.getItem("pipelineTaskId") || "",
-  sourceTab: "site",
+  pipelineStepFocus: "",
+  sourceTab: localStorage.getItem("dashboardSourceTab") === "tg" ? "tg" : "site",
   savedSearches: readJson("savedNewsSearches", []),
   taskTimers: new Map(),
   uiPaused: false,
@@ -54,34 +55,40 @@ const SOURCE_EXAMPLE_FALLBACKS = {
   ],
   tg: [
     {
-      name: "@therundownai",
-      url: "@therundownai",
-      topic_slug: "ai",
-      description: "AI новини, щоденні дайджести та тренди.",
-    },
-    {
-      name: "@aibreakfast",
-      url: "@aibreakfast",
-      topic_slug: "ai",
-      description: "Короткі AI дайджести для швидкого читання.",
-    },
-    {
-      name: "@analyticsindiamag",
-      url: "@analyticsindiamag",
-      topic_slug: "science",
-      description: "AI, data science, ML та аналітика.",
-    },
-    {
-      name: "@machinelearningnews",
-      url: "@machinelearningnews",
+      name: "NEXTA Live",
+      url: "https://t.me/nexta_live",
       topic_slug: "technology",
-      description: "Новини про машинне навчання та LLM.",
+      description: "Оперативні новини та суспільно-політичні оновлення.",
     },
     {
-      name: "@openaicommunity",
-      url: "@openaicommunity",
-      topic_slug: "ai",
-      description: "Спільнота навколо OpenAI та AI-екосистеми.",
+      name: "IT Ukraine Association",
+      url: "https://t.me/itukraineassociation",
+      topic_slug: "technology",
+      description: "Новини української IT-спільноти, події та ринок технологій.",
+    },
+    {
+      name: "IT Ukraine",
+      url: "https://t.me/itukraine",
+      topic_slug: "technology",
+      description: "Профільний канал про український IT-ринок і спільноту.",
+    },
+    {
+      name: "Telegraf UA",
+      url: "https://t.me/Telegraf_UA_channel",
+      topic_slug: "technology",
+      description: "Українські новини, аналітика та медійні оновлення.",
+    },
+    {
+      name: "Ukraine Online",
+      url: "https://t.me/UaOnlii",
+      topic_slug: "technology",
+      description: "Українські новини, оперативні оновлення та соціальні теми.",
+    },
+    {
+      name: "Sota.Vision",
+      url: "https://t.me/sotavisionmedia",
+      topic_slug: "science",
+      description: "Незалежні новини та аналітика про суспільні події.",
     },
   ],
 };
@@ -105,6 +112,12 @@ function writeJson(key, value) {
 
 function normalize(value) {
   return String(value ?? "").trim();
+}
+
+function persistSourceTab(type) {
+  state.sourceTab = type === "tg" ? "tg" : "site";
+  localStorage.setItem("dashboardSourceTab", state.sourceTab);
+  return state.sourceTab;
 }
 
 function escapeHtml(value) {
@@ -326,9 +339,35 @@ function topicIdBySlug(slug) {
 function sourceHref(value) {
   const text = normalize(value);
   if (!text) return "";
-  if (text.startsWith("http://") || text.startsWith("https://")) return text;
+  if (text.startsWith("http://") || text.startsWith("https://")) {
+    return text
+      .replace(/^http:\/\//i, "https://")
+      .replace(/^https:\/\/telegram\.me\//i, "https://t.me/");
+  }
   if (text.startsWith("@")) return `https://t.me/${text.slice(1)}`;
+  if (text.startsWith("t.me/")) return `https://${text}`;
+  if (text.startsWith("telegram.me/")) return `https://t.me/${text.slice("telegram.me/".length)}`;
+  if (text.includes("/") || text.includes(".")) return `https://${text}`;
   return `https://t.me/${text}`;
+}
+
+function normalizeTelegramUrl(value) {
+  const text = normalize(value);
+  if (!text) return "";
+  if (text.startsWith("@")) return `https://t.me/${text.slice(1)}`;
+  if (/^(https?:\/\/)?telegram\.me\//i.test(text)) {
+    return `https://t.me/${text.replace(/^(https?:\/\/)?telegram\.me\//i, "")}`;
+  }
+  if (/^(https?:\/\/)?t\.me\//i.test(text)) {
+    return `https://t.me/${text.replace(/^(https?:\/\/)?t\.me\//i, "")}`;
+  }
+  return `https://t.me/${text.replace(/^\/+/, "")}`;
+}
+
+function normalizeSourceUrl(type, value) {
+  const text = normalize(value);
+  if (type === "tg") return normalizeTelegramUrl(text);
+  return text;
 }
 
 function sourceModeInfo(source) {
@@ -399,6 +438,99 @@ function postStatusLabel(value) {
   return map[value] || value || "";
 }
 
+function postStatusInfo(value) {
+  const map = {
+    new: {
+      label: "Нове",
+      hint: "Ще не передано в AI-редагування.",
+    },
+    generated: {
+      label: "Готово до перевірки",
+      hint: "AI уже згенерував текст, тепер матеріал можна переглянути.",
+    },
+    pending_approval: {
+      label: "Очікує перевірки редактором",
+      hint: "Матеріал чекає підтвердження перед публікацією.",
+    },
+    published: {
+      label: "Опубліковано",
+      hint: "Пост уже відправлено в Telegram або на сайт.",
+    },
+    failed: {
+      label: "Помилка обробки",
+      hint: "Спробуй переглянути деталі або запустити AI-редагування ще раз.",
+    },
+    rejected: {
+      label: "Відхилено",
+      hint: "Матеріал зупинено редактором і не піде в публікацію.",
+    },
+  };
+  return map[value] || { label: postStatusLabel(value), hint: "Статус матеріалу" };
+}
+
+function pipelineStepDetails(stageKey, meta = {}) {
+  const counts = {
+    sources: meta.sources ?? state.sources.length,
+    rss_sources: meta.rss_sources ?? state.sources.filter((source) => source.type === "site").length,
+    telegram_sources: meta.telegram_sources ?? state.sources.filter((source) => source.type === "tg").length,
+    new_items: meta.new_items ?? 0,
+    duplicates: meta.duplicates ?? 0,
+    queued_for_ai: meta.queued_for_ai ?? 0,
+    waiting_approval: meta.waiting_approval ?? 0,
+    errors: meta.errors ?? 0,
+  };
+
+  const map = {
+    "Pipeline Started": {
+      title: "Запуск конвеєра",
+      description: "Система перевіряє активні джерела і готує сценарій збору.",
+      metrics: [`Активних джерел: ${counts.sources}`, `RSS: ${counts.rss_sources}`, `Telegram: ${counts.telegram_sources}`],
+    },
+    "RSS Processing": {
+      title: "Отримання RSS новин",
+      description: "Система читає RSS-стрічки, збирає свіжі матеріали і відкидає дублікати.",
+      metrics: [`RSS джерел у сценарії: ${counts.rss_sources}`, `Нових новин: ${counts.new_items}`, `Дублікати: ${counts.duplicates}`],
+    },
+    "Telegram Processing": {
+      title: "Отримання Telegram новин",
+      description: "Система проходить Telegram-канали, підхоплює нові матеріали і не губить канал, навіть якщо є помилка доступу.",
+      metrics: [`Telegram джерел у сценарії: ${counts.telegram_sources}`, `Нових новин: ${counts.new_items}`, `Помилок: ${counts.errors}`],
+    },
+    "AI Processing": {
+      title: "Фільтрація новин",
+      description: "Правила відбору вирішують, що піде в AI-чергу, а що залишиться відкинутим як дублікат або нерелевантний матеріал.",
+      metrics: [`У черзі на AI: ${counts.queued_for_ai}`, `Очікує перевірки: ${counts.waiting_approval}`, `Відхилених помилок: ${counts.errors}`],
+    },
+    "Post Generation": {
+      title: "AI-редагування",
+      description: "AI формує короткий текст поста, який можна переглянути, підтвердити або відправити далі.",
+      metrics: [`Чернеток у роботі: ${counts.queued_for_ai}`, `Після AI: ${counts.waiting_approval}`, `Помилок: ${counts.errors}`],
+    },
+    "Publishing": {
+      title: "Публікація",
+      description: "Готові матеріали передаються в Telegram або на сайт і переходять у історію публікацій.",
+      metrics: [`Публікацій у черзі: ${counts.queued_for_ai}`, `Готово до історії: ${counts.waiting_approval}`, `Помилок: ${counts.errors}`],
+    },
+    Completed: {
+      title: "Результат конвеєра",
+      description: "Сценарій завершено. Нижче видно підсумок і наступний крок до огляду новин.",
+      metrics: [`Нових новин: ${counts.new_items}`, `Черга AI: ${counts.queued_for_ai}`, `Помилок: ${counts.errors}`],
+    },
+  };
+
+  return map[stageKey] || map["Pipeline Started"];
+}
+
+const PIPELINE_STEPS = [
+  { key: "Pipeline Started", label: "Запуск", short: "Готуємо сценарій" },
+  { key: "RSS Processing", label: "RSS", short: "Збір новин із сайтів" },
+  { key: "Telegram Processing", label: "Telegram", short: "Збір новин з каналів" },
+  { key: "AI Processing", label: "Фільтри", short: "Відбір і перевірка" },
+  { key: "Post Generation", label: "AI", short: "Генерація постів" },
+  { key: "Publishing", label: "Публікація", short: "Відправка в Telegram або сайт" },
+  { key: "Completed", label: "Результат", short: "Підсумок і наступний крок" },
+];
+
 function withButtonState(button, busyLabel) {
   if (!button) return () => {};
   const original = button.dataset.originalText || button.textContent;
@@ -419,7 +551,7 @@ function withButtonState(button, busyLabel) {
 }
 
 function selectedSourceType() {
-  return $("#sourceType")?.value === "tg" ? "tg" : "site";
+  return $("#sourceType")?.value === "tg" || state.sourceTab === "tg" ? "tg" : "site";
 }
 
 function renderAdminState() {
@@ -608,12 +740,16 @@ function renderSourceCard(source) {
   const info = sourceModeInfo(source);
   const topic = state.topics.find((item) => item.id === source.topic_id);
   const href = sourceHref(source.url);
+  const displayUrl = source.type === "tg" ? href : source.url;
   return `
     <details class="item source-card source-card--${info.tone}">
       <summary>
         <div class="source-summary-main">
-          <div class="${info.nameClass}">${escapeHtml(source.name)}</div>
-          <div class="source-url ${info.nameClass}">${escapeHtml(source.url)}</div>
+          <div class="source-summary-head">
+            <div class="${info.nameClass}">${escapeHtml(source.name)}</div>
+            <span class="pill source-type-pill">${escapeHtml(source.type === "tg" ? "Telegram" : "RSS")}</span>
+          </div>
+          <div class="source-url ${info.nameClass}">${escapeHtml(displayUrl)}</div>
         </div>
         <div class="status slim ${info.tone === "active" ? "status--ok" : info.tone === "error" ? "status--error" : "status--wait"}">${statusMarkup(info.token, info.status)}</div>
       </summary>
@@ -646,13 +782,22 @@ function renderSuggestions() {
 function renderSources() {
   const rssList = $("#rssSourcesList");
   const tgList = $("#telegramSourcesList");
+  const modalList = $("#sourceModalSourcesList");
   if (!rssList || !tgList) return;
 
   const rss = state.sources.filter((source) => source.type === "site");
   const tg = state.sources.filter((source) => source.type === "tg");
+  const total = rss.length + tg.length;
   rssList.innerHTML = rss.map(renderSourceCard).join("") || '<div class="item muted">RSS джерел ще немає. Натисни «Додати джерело» вище.</div>';
   tgList.innerHTML = tg.map(renderSourceCard).join("") || '<div class="item muted">Telegram-джерел ще немає. Натисни «Додати джерело» вище.</div>';
-  setStatus("#sourcesStatus", rss.length + tg.length ? "OK" : "WAIT", rss.length + tg.length ? `Джерела додано: ${rss.length + tg.length}` : "Джерела ще не додано");
+  if (modalList) {
+    modalList.innerHTML = state.sources.map(renderSourceCard).join("") || '<div class="item muted">Джерел ще немає. Додай перше джерело вище.</div>';
+  }
+  setStatus("#sourcesStatus", total ? "OK" : "WAIT", total ? "Джерела готові до запуску" : "Джерела ще не додано");
+  setStatus("#sourcesCount", total ? "OK" : "WAIT", total ? `Джерел додано: ${total}` : "Джерел додано: 0");
+  setStatus("#sourceModalRssCount", rss.length ? "OK" : "WAIT", `RSS: ${rss.length}`);
+  setStatus("#sourceModalTgCount", tg.length ? "OK" : "WAIT", `Telegram: ${tg.length}`);
+  setStatus("#sourceModalTotalCount", total ? "OK" : "WAIT", `Всього: ${total}`);
   const rssHeading = rssList.closest(".source-column")?.querySelector("h3");
   const tgHeading = tgList.closest(".source-column")?.querySelector("h3");
   if (rssHeading) rssHeading.innerHTML = `RSS джерела <span class="pill">${rss.length}</span>`;
@@ -697,9 +842,9 @@ function renderNews() {
                 <div class="status slim ${item.raw_text ? "status--ok" : "status--wait"}">${item.raw_text ? "Текст новини готовий" : "Текст новини не зчитано"}</div>
                 <p>${escapeHtml(item.summary)}</p>
                 <div class="item-actions">
-                  <button class="secondary" data-improve-ai="${escapeHtml(item.id)}">AI-редагування</button>
-                  <button class="secondary" data-publish-site="${escapeHtml(item.id)}">На сайт</button>
-                  <button class="secondary" data-publish-telegram="${escapeHtml(item.id)}">Telegram</button>
+                  <button class="secondary" data-improve-ai="${escapeHtml(item.id)}">Редагувати через AI</button>
+                  <button class="secondary" data-publish-site="${escapeHtml(item.id)}">Опублікувати на сайті</button>
+                  <button class="secondary" data-publish-telegram="${escapeHtml(item.id)}">Опублікувати в Telegram</button>
                 </div>
               </article>`;
           })
@@ -715,43 +860,65 @@ function renderPosts() {
   const publishedList = $("#publishedList");
   if (!list || !publishedList) return Promise.resolve();
 
-  const filter = $("#postStatusFilter")?.value || "pending_approval";
-
   return api("/api/posts/?limit=50")
     .then((items) => {
       state.posts = items;
-
-      const matchesFilter = (post) => {
-        if (filter === "all") return true;
-        if (filter === "published") return post.status === "published";
-        if (filter === "failed") return post.status === "failed";
-        return ["new", "generated", "pending_approval"].includes(post.status);
+      const counts = {
+        total: items.length,
+        generated: items.filter((post) => post.status === "generated").length,
+        pending: items.filter((post) => post.status === "pending_approval").length,
+        published: items.filter((post) => post.status === "published").length,
+        failed: items.filter((post) => post.status === "failed").length,
+        rejected: items.filter((post) => post.status === "rejected").length,
       };
 
-      const filtered = items.filter(matchesFilter);
-      const rowMarkup = filtered
-        .map((post) => {
-          const headline = post.news?.title || `Матеріал ${post.id.slice(0, 8)}`;
-          const statusText = post.status === "published" ? "Опубліковано" : post.status === "failed" ? "Помилка" : "Очікує";
-          return `
-            <tr class="posts-row posts-row--${post.status}">
-              <td>${escapeHtml(formatDate(post.updated_at))}</td>
-              <td>${escapeHtml(post.news?.source || "—")}</td>
-              <td>
-                <div class="table-title">${escapeHtml(headline)}</div>
-                <div class="table-actions">
-                  <button class="secondary" data-focus-post="${escapeHtml(post.id)}">Редагувати</button>
-                  <button class="secondary" data-confirm-post="${escapeHtml(post.id)}">Підтвердити</button>
-                </div>
-              </td>
-              <td>
-                <span class="pill pill--${post.status === "published" ? "ok" : post.status === "failed" ? "error" : "wait"}">${escapeHtml(statusText)}</span>
-              </td>
-            </tr>`;
-        })
-        .join("");
+      setHtml(
+        "#postsSummary",
+        [
+          `<div class="status status--run">Усього: ${counts.total}</div>`,
+          `<div class="status status--wait">Очікує перевірки: ${counts.pending + counts.generated}</div>`,
+          `<div class="status status--ok">Опубліковано: ${counts.published}</div>`,
+          `<div class="status status--error">Помилки: ${counts.failed}</div>`,
+        ].join("")
+      );
 
-      list.innerHTML = rowMarkup || '<tr><td colspan="4" class="muted">Матеріалів немає. Перевір джерела або запусти збір новин.</td></tr>';
+      const cardMarkup =
+        items
+          .map((post) => {
+            const headline = post.news?.title || `Матеріал ${post.id.slice(0, 8)}`;
+            const statusInfo = postStatusInfo(post.status);
+            const previewText = normalize(post.generated_text || post.news?.summary || "");
+            const excerpt = previewText ? `${previewText.slice(0, 180)}${previewText.length > 180 ? "..." : ""}` : "Поки що немає тексту для перегляду.";
+            const detailsId = `postDetails-${post.id}`;
+            const publishedLabel = post.status === "published" ? "Опубліковано" : "Підтвердити та опублікувати";
+            const publishedDisabled = post.status === "published" ? "disabled" : "";
+            const sourceLabel = escapeHtml(post.news?.source || "—");
+            const articleStatusClass = post.status === "published" ? "status--ok" : post.status === "failed" ? "status--error" : "status--wait";
+            return `
+              <article class="post-card post-card--${escapeHtml(post.status)}">
+                <div class="post-card__top">
+                  <div>
+                    <div class="item-title">${escapeHtml(headline)}</div>
+                    <div class="post-card__meta">${sourceLabel} · ${escapeHtml(formatDate(post.published_at || post.updated_at))}</div>
+                  </div>
+                  <div class="status slim ${articleStatusClass}">${escapeHtml(statusInfo.label)}</div>
+                </div>
+                <p class="post-card__excerpt">${escapeHtml(excerpt)}</p>
+                <div class="post-card__status-hint">${escapeHtml(statusInfo.hint)}</div>
+                <div id="${escapeHtml(detailsId)}" class="post-card__details" hidden>
+                  <textarea readonly data-post-text="${escapeHtml(post.id)}">${escapeHtml(post.generated_text || post.news?.summary || "")}</textarea>
+                </div>
+                <div class="post-card__actions">
+                  <button class="secondary" data-improve-ai="${escapeHtml(post.news_id)}">Редагувати через AI</button>
+                  <button class="secondary post-card__toggle" data-toggle-post="${escapeHtml(post.id)}">Переглянути</button>
+                  <button class="secondary" data-confirm-post="${escapeHtml(post.id)}" ${publishedDisabled}>${escapeHtml(publishedLabel)}</button>
+                  <button class="danger" data-delete-post="${escapeHtml(post.id)}">Видалити</button>
+                </div>
+              </article>`;
+          })
+          .join("") || '<div class="item muted">Постів ще немає. Запусти конвеєр або згенеруй матеріали з новин.</div>';
+
+      list.innerHTML = cardMarkup;
 
       publishedList.innerHTML =
         items
@@ -759,17 +926,20 @@ function renderPosts() {
           .map((post) => {
             const headline = post.news?.title || `Матеріал ${post.id.slice(0, 8)}`;
             return `
-              <article class="card queue-card">
+              <article class="post-card post-card--published">
                 <div class="item-title">${escapeHtml(headline)}</div>
-                <div class="muted">${escapeHtml(formatDate(post.published_at || post.updated_at))}</div>
-                <textarea readonly>${escapeHtml(post.generated_text)}</textarea>
-                <div class="status slim">${statusMarkup("OK", "Опубліковано")}</div>
+                <div class="post-card__meta">${escapeHtml(post.news?.source || "—")} · ${escapeHtml(formatDate(post.published_at || post.updated_at))}</div>
+                <div class="status status--ok">Опубліковано</div>
+                <button class="secondary post-card__toggle" data-toggle-post="${escapeHtml(post.id)}">Переглянути</button>
+                <div id="publishedPostDetails-${escapeHtml(post.id)}" class="post-card__details" hidden>
+                  <textarea readonly data-post-text="${escapeHtml(post.id)}">${escapeHtml(post.generated_text || post.news?.summary || "")}</textarea>
+                </div>
               </article>`;
           })
           .join("") || '<div class="item muted">Опублікованих матеріалів ще немає.</div>';
     })
     .catch((error) => {
-      list.innerHTML = `<tr><td colspan="4" class="muted">${escapeHtml(error.message)}</td></tr>`;
+      list.innerHTML = `<div class="item muted">${escapeHtml(error.message)}</div>`;
       publishedList.innerHTML = `<div class="item muted">${escapeHtml(error.message)}</div>`;
     });
 }
@@ -788,17 +958,41 @@ function renderPipeline() {
   const aiReady = Boolean(aiCheck ? aiCheck.ok : state.publicStatus?.openai_configured);
   const failed = status.task_state === "FAILURE";
   const sourceCount = state.sources.length;
-  const currentStage = translateStageLabel(meta.stage_label || meta.stage_key || "");
+  const rssCount = state.sources.filter((source) => source.type === "site").length;
+  const tgCount = state.sources.filter((source) => source.type === "tg").length;
+  const currentStageKey = meta.stage_key || "Pipeline Started";
+  const focusKey = PIPELINE_STEPS.some((item) => item.key === state.pipelineStepFocus) ? state.pipelineStepFocus : currentStageKey;
+  const focusDetails = pipelineStepDetails(focusKey, meta);
+  const readyText =
+    sourceCount === 0
+      ? "Додай щонайменше 1 джерело"
+      : sourceCount < 3
+        ? "Сценарій готовий, але рекомендовано 3–10 джерел"
+        : sourceCount > 20
+          ? "Занадто багато джерел. Максимум 20"
+          : "Сценарій конвеєра готовий";
+  const resultSummary = (() => {
+    if (status.task_state === "SUCCESS") {
+      return `Готово: джерел ${meta.sources ?? sourceCount}, RSS ${meta.rss_sources ?? rssCount}, Telegram ${meta.telegram_sources ?? tgCount}, новин ${meta.new_items ?? 0}, AI-черга ${meta.queued_for_ai ?? 0}, помилок ${meta.errors ?? 0}.`;
+    }
+    if (status.task_state === "FAILURE") {
+      return explainErrorBody(status.task_result || status.task_meta, "Конвеєр завершився з помилкою");
+    }
+    if (running) {
+      return `Зараз: ${translateStageLabel(meta.stage_label || meta.stage_key || "Запуск")}. Джерел ${meta.sources ?? sourceCount}, RSS ${meta.rss_sources ?? rssCount}, Telegram ${meta.telegram_sources ?? tgCount}, новин ${meta.new_items ?? 0}, AI-черга ${meta.queued_for_ai ?? 0}.`;
+    }
+    return `Сценарій готовий: RSS ${rssCount}, Telegram ${tgCount}, AI ${aiReady ? "готовий" : aiTemporary ? "тимчасово недоступний" : aiCheck ? "не підтверджено" : "потрібен ключ"}. Натисни «Запустити конвеєр», щоб побачити кроки в реальному часі.`;
+  })();
 
   setStatus(
     "#pipelineReadyStatus",
-    running ? "RUN" : failed ? "ERROR" : "WAIT",
-    running ? "Конвеєр працює" : failed ? "Помилка конвеєра" : sourceCount ? "Сценарій конвеєра готовий" : "Додай джерела, щоб запустити конвеєр"
+    running ? "RUN" : failed ? "ERROR" : sourceCount ? (sourceCount > 20 ? "WAIT" : "OK") : "WAIT",
+    running ? "Конвеєр працює" : failed ? "Помилка конвеєра" : readyText
   );
   setStatus(
     "#workflowStatus",
     running ? "RUN" : failed ? "ERROR" : "WAIT",
-    running ? currentStage || "Поточний крок" : failed ? "Помилка конвеєра" : "Натисни «Запустити конвеєр»"
+    running ? translateStageLabel(meta.stage_label || meta.stage_key || "Поточний крок") || "Поточний крок" : failed ? "Помилка конвеєра" : "Натисни «Запустити конвеєр»"
   );
 
   const hasRssSources = state.sources.some((source) => source.type === "site");
@@ -819,46 +1013,38 @@ function renderPipeline() {
     aiReady ? "ШІ готовий" : aiTemporary ? "ШІ тимчасово недоступний" : aiCheck ? "ШІ не підтверджено" : "Потрібен ключ OpenAI"
   );
 
-  const stageNames = [
-    { key: "Pipeline Started", label: "Конвеєр запущено" },
-    { key: "RSS Processing", label: "Обробка RSS" },
-    { key: "Telegram Processing", label: "Обробка Telegram" },
-    { key: "AI Processing", label: "Обробка ШІ" },
-    { key: "Post Generation", label: "Створення постів" },
-    { key: "Publishing", label: "Публікація" },
-    { key: "Completed", label: "Завершено" },
-  ];
-  const stageHtml = stageNames
+  const stageHtml = PIPELINE_STEPS
     .map((item) => {
       const stageState = stages[item.key] || "pending";
-      const active = meta.stage_key === item.key || (item.key === "Completed" && status.task_state === "SUCCESS");
+      const active = focusKey === item.key || (item.key === "Completed" && status.task_state === "SUCCESS");
       return `
-        <div class="stage-card ${pipelineTone(stageState)} ${active ? "is-active" : ""}">
+        <button type="button" class="stage-card ${pipelineTone(stageState)} ${active ? "is-active" : ""}" data-pipeline-step="${escapeHtml(item.key)}">
           <div class="stage-name">${escapeHtml(item.label)}</div>
           <div class="stage-state">${escapeHtml(translateStageState(stageState))}</div>
-        </div>`;
+          <div class="muted">${escapeHtml(item.short)}</div>
+        </button>`;
     })
     .join("");
   setHtml("#pipelineStageList, #pipelineModalStageList", stageHtml);
+  const detailHtml = `
+    <div class="item-title">${escapeHtml(focusDetails.title)}</div>
+    <p class="muted">${escapeHtml(focusDetails.description)}</p>
+    <div class="post-summary-grid">
+      ${focusDetails.metrics.map((item) => `<div class="status slim">${escapeHtml(item)}</div>`).join("")}
+    </div>`;
+  setHtml("#pipelineStageDetails", detailHtml);
+  setText("#pipelineResult, #pipelineModalResult", resultSummary);
 
-  if (status.task_state === "SUCCESS") {
-    setText(
-      "#pipelineResult, #pipelineModalResult",
-      "Збір новин завершено. Перейдіть до огляду, відредагуйте пости й відправте їх у Telegram або на сайт."
-    );
-  } else if (status.task_state === "FAILURE") {
-    setText("#pipelineResult, #pipelineModalResult", explainErrorBody(status.task_result || status.task_meta, "Конвеєр завершився з помилкою"));
-  } else if (meta.stage_label) {
-    setText("#pipelineResult, #pipelineModalResult", translateStageLabel(meta.stage_label));
-  } else {
-    const rssCount = state.sources.filter((source) => source.type === "site").length;
-    const tgCount = state.sources.filter((source) => source.type === "tg").length;
-    const aiState = aiReady ? "готовий" : aiTemporary ? "тимчасово недоступний" : aiCheck ? "не підтверджено" : "потрібен ключ";
-    setText(
-      "#pipelineResult, #pipelineModalResult",
-      `Сценарій готовий: RSS ${rssCount}, Telegram ${tgCount}, AI ${aiState}. Натисни «Запустити конвеєр», щоб побачити кроки в реальному часі.`
-    );
-  }
+  const success = status.task_state === "SUCCESS";
+  const overviewButtons = [
+    $("#pipelineGoToOverviewBtn"),
+    $("#pipelineModalGoToOverviewBtn"),
+  ];
+  overviewButtons.forEach((button) => {
+    if (!(button instanceof HTMLButtonElement)) return;
+    button.hidden = !success;
+    button.textContent = success ? "📊 Перейти до огляду новин" : "Огляд відкриється після завершення";
+  });
 }
 
 function renderOverview() {
@@ -989,6 +1175,8 @@ async function refreshAll() {
     setHtml("#topicsList", '<div class="item muted">Додайте код доступу, щоб бачити правила відбору.</div>');
     setHtml("#rssSourcesList", '<div class="item muted">Додайте код доступу, щоб бачити джерела.</div>');
     setHtml("#telegramSourcesList", '<div class="item muted">Додайте код доступу, щоб бачити Telegram-джерела.</div>');
+    setStatus("#sourcesStatus", "WAIT", "Джерела приховано без коду доступу");
+    setStatus("#sourcesCount", "WAIT", "Джерел додано: --");
     setHtml("#newsList", '<div class="item muted">Додайте код доступу, щоб бачити новини.</div>');
     setHtml("#postsList", '<tr><td colspan="4" class="muted">Додайте код доступу, щоб бачити пости.</td></tr>');
     setHtml("#publishedList", '<div class="item muted">Додайте код доступу, щоб бачити публікації.</div>');
@@ -1015,6 +1203,7 @@ async function startPipeline() {
     openDialog("#pipelineModal");
     openSection("logsSection");
     state.uiPaused = false;
+    state.pipelineStepFocus = "Pipeline Started";
     const result = await api("/api/pipeline/run", { method: "POST" });
     state.pipelineTaskId = result.task_id;
     sessionStorage.setItem("pipelineTaskId", result.task_id);
@@ -1046,8 +1235,8 @@ async function pollPipeline(taskId) {
       if (status.task_state === "SUCCESS" || status.task_state === "FAILURE") {
         window.clearInterval(timer);
         state.taskTimers.delete(taskId);
-        state.pipelineTaskId = "";
-        sessionStorage.removeItem("pipelineTaskId");
+        state.pipelineStepFocus = status.task_state === "SUCCESS" ? "Completed" : state.pipelineStepFocus;
+        showToast(status.task_state === "SUCCESS" ? "Конвеєр завершено" : "Конвеєр завершився з помилкою", status.task_state === "SUCCESS" ? "ok" : "error");
         await loadPrivateData();
       }
     } catch {
@@ -1115,9 +1304,11 @@ async function submitSourceForm(form) {
   const done = withButtonState($("#sourceSubmitBtn"), "Додаю...");
   const payload = Object.fromEntries(new FormData(form).entries());
   const status = $("#sourceSaveStatus");
+  const normalizedType = normalize(payload.type) === "tg" ? "tg" : "site";
+  const normalizedUrl = normalizeSourceUrl(normalizedType, payload.url);
   const duplicate = state.sources.some((item) => {
-    const sameType = normalize(item.type) === normalize(payload.type);
-    const sameUrl = normalize(item.url).toLowerCase() === normalize(payload.url).toLowerCase();
+    const sameType = normalize(item.type) === normalizedType;
+    const sameUrl = normalizeSourceUrl(item.type, item.url).toLowerCase() === normalizedUrl.toLowerCase();
     return sameType && sameUrl;
   });
   if (duplicate) {
@@ -1132,23 +1323,31 @@ async function submitSourceForm(form) {
     status.textContent = "Додавання джерела";
   }
   try {
+    if (normalizedType === "tg") form.url.value = normalizedUrl;
     await api("/api/sources/", {
       method: "POST",
       body: JSON.stringify({
-        type: payload.type,
+        type: normalizedType,
         name: payload.name,
-        url: payload.url,
+        url: normalizedUrl,
         topic_id: payload.topic_id || null,
         enabled: true,
       }),
     });
     form.reset();
-    state.sourceTab = payload.type || "site";
+    persistSourceTab(normalizedType);
     renderSourceTabs();
     done("success", "Додано");
-    setStatus("#sourceSaveStatus", "OK", "Джерело додано. Можеш закрити вікно або вибрати ще один шаблон.");
     showToast("Джерело додано", "ok");
     await loadPrivateData();
+    const total = state.sources.length;
+    const rssCount = state.sources.filter((item) => item.type === "site").length;
+    const tgCount = state.sources.filter((item) => item.type === "tg").length;
+    setStatus(
+      "#sourceSaveStatus",
+      "OK",
+      `${normalizedType === "tg" ? "Telegram-канал" : "RSS-джерело"} успішно додано. RSS: ${rssCount}. Telegram: ${tgCount}. Всього: ${total}. Далі натисни «Запустити конвеєр».`
+    );
   } catch (error) {
     done("error", "Помилка");
     setStatus("#sourceSaveStatus", "ERROR", error.message);
@@ -1182,6 +1381,7 @@ async function improveWithAI(newsId, button) {
     await api(`/api/news/${newsId}/generate`, { method: "POST" });
     done("success", "У черзі");
     await loadPrivateData();
+    showToast("AI-редагування запущено", "ok");
   } catch (error) {
     done("error", "Помилка");
     setStatus("#pipelineResult", "ERROR", error.message);
@@ -1194,6 +1394,7 @@ async function publishNews(newsId, endpoint, button) {
     await api(endpoint, { method: "POST" });
     done("success", "Готово");
     await loadPrivateData();
+    showToast("Матеріал передано на публікацію", "ok");
   } catch (error) {
     done("error", "Помилка");
     setStatus("#pipelineResult", "ERROR", error.message);
@@ -1210,10 +1411,17 @@ async function approvePost(postId, button) {
     });
     done("success", "Відправлено");
     await loadPrivateData();
+    showToast("Пост підтверджено", "ok");
   } catch (error) {
     done("error", "Помилка");
     setStatus("#pipelineResult", "ERROR", error.message);
   }
+}
+
+async function removePost(postId) {
+  await api(`/api/posts/${postId}`, { method: "DELETE" });
+  await loadPrivateData();
+  showToast("Пост видалено", "ok");
 }
 
 async function testAi(event) {
@@ -1285,9 +1493,9 @@ function fillSourceFromSuggestion(suggestion, type) {
   if (!form) return;
   form.type.value = type;
   form.name.value = suggestion.name;
-  form.url.value = suggestion.url;
+  form.url.value = normalizeSourceUrl(type, suggestion.url);
   form.topic_id.value = topicIdBySlug(suggestion.topic_slug) || "";
-  state.sourceTab = type;
+  persistSourceTab(type);
   renderSourceTabs();
   renderSourceFormState();
   form.scrollIntoView({ behavior: "smooth", block: "center" });
@@ -1298,9 +1506,10 @@ function saveSourceToExamples(sourceId) {
   if (!source) return;
   const type = source.type === "tg" ? "tg" : "site";
   const bucket = Array.isArray(state.customSourceSuggestions?.[type]) ? [...state.customSourceSuggestions[type]] : [];
+  const normalizedUrl = normalizeSourceUrl(type, source.url);
   const payload = {
     name: source.name,
-    url: source.url,
+    url: normalizedUrl,
     topic_slug: state.topics.find((item) => item.id === source.topic_id)?.slug || "",
     description: `Користувацький приклад: ${source.name}`,
     type,
@@ -1332,12 +1541,22 @@ function renderSourceTabs() {
   const site = $("#sourceTabSite");
   const tg = $("#sourceTabTg");
   const modal = $("#sourceModal");
-  if (site) site.classList.toggle("active", state.sourceTab === "site");
-  if (tg) tg.classList.toggle("active", state.sourceTab === "tg");
-  if (modal) modal.dataset.activeSourceType = state.sourceTab;
-  const type = $("#sourceType");
-  if (type) type.value = state.sourceTab;
+  const activeType = persistSourceTab(state.sourceTab);
+  if (site) site.classList.toggle("active", activeType === "site");
+  if (tg) tg.classList.toggle("active", activeType === "tg");
+  if (modal) modal.dataset.activeSourceType = activeType;
+  const typeField = $("#sourceType");
+  if (typeField) typeField.value = activeType;
   renderSourceFormState();
+}
+
+function openSourceModal() {
+  renderSourceTabs();
+  openDialog("#sourceModal");
+  window.requestAnimationFrame(() => {
+    const nameField = $("#sourceForm input[name='name']");
+    nameField?.focus();
+  });
 }
 
 function applySearchTemplate(index) {
@@ -1520,7 +1739,9 @@ function bindEvents() {
     }
   });
 
-  $("#openSourceModalBtn")?.addEventListener("click", () => openDialog("#sourceModal"));
+  $("#openSourceModalBtn")?.addEventListener("click", openSourceModal);
+  $("#sourcesStatus")?.addEventListener("click", openSourceModal);
+  $("#sourcesCount")?.addEventListener("click", openSourceModal);
   $("#openAiTestBtn")?.addEventListener("click", () => {
     const textarea = document.querySelector('#aiModal textarea[name="text"]');
     if (textarea instanceof HTMLTextAreaElement && !normalize(textarea.value)) {
@@ -1559,6 +1780,8 @@ function bindEvents() {
   $("#checkTelegramBtn")?.addEventListener("click", checkTelegramConnection);
   $("#verifyOpenaiBtn")?.addEventListener("click", verifyOpenAI);
   $("#runPipelineBtn")?.addEventListener("click", startPipeline);
+  $("#pipelineGoToOverviewBtn")?.addEventListener("click", () => openSection("overviewSection"));
+  $("#pipelineModalGoToOverviewBtn")?.addEventListener("click", () => openSection("overviewSection"));
   $("#checkDeliveryBtn")?.addEventListener("click", async () => {
     const done = withButtonState($("#checkDeliveryBtn"), "Перевіряю...");
     try {
@@ -1574,11 +1797,11 @@ function bindEvents() {
   $("#autoPublishToggle")?.addEventListener("change", toggleAutoPublish);
 
   $("#sourceTabSite")?.addEventListener("click", () => {
-    state.sourceTab = "site";
+    persistSourceTab("site");
     renderSourceTabs();
   });
   $("#sourceTabTg")?.addEventListener("click", () => {
-    state.sourceTab = "tg";
+    persistSourceTab("tg");
     renderSourceTabs();
   });
 
@@ -1592,8 +1815,17 @@ function bindEvents() {
   $("#startPipelineFromSourcesBtn")?.addEventListener("click", startPipeline);
   $("#searchNewsBtn")?.addEventListener("click", () => renderNews());
   $("#saveSearchTemplateBtn")?.addEventListener("click", saveSearchTemplate);
-  $("#refreshPostsBtn")?.addEventListener("click", () => renderPosts());
-  $("#postStatusFilter")?.addEventListener("change", () => renderPosts());
+  $("#refreshPostsBtn")?.addEventListener("click", async () => {
+    const done = withButtonState($("#refreshPostsBtn"), "Оновлюю...");
+    try {
+      await loadPrivateData();
+      done("success", "Оновлено");
+      showToast("Список публікацій оновлено", "ok");
+    } catch (error) {
+      done("error", "Помилка");
+      showToast(`Не вдалося оновити список публікацій: ${error.message}`, "error");
+    }
+  });
   $("#searchExampleSelect")?.addEventListener("change", (event) => setSearchExample(event.target.value));
   $("#topicExampleSelect")?.addEventListener("change", (event) => applyTopicTemplate(event.target.value));
   $("#postStyleSelect")?.addEventListener("change", syncAiPromptPreview);
@@ -1613,6 +1845,12 @@ function bindEvents() {
     }
 
     if (target.dataset.topicTemplate) return applyTopicTemplate(target.dataset.topicTemplate);
+
+    if (target.dataset.pipelineStep) {
+      state.pipelineStepFocus = target.dataset.pipelineStep;
+      renderPipeline();
+      return;
+    }
 
     if (target.dataset.useSourceSuggestion) {
       const index = Number(target.dataset.useSourceSuggestion);
@@ -1649,6 +1887,21 @@ function bindEvents() {
     if (target.dataset.improveAi) return improveWithAI(target.dataset.improveAi, target);
     if (target.dataset.publishSite) return publishNews(target.dataset.publishSite, `/api/news/${target.dataset.publishSite}/publish-site`, target);
     if (target.dataset.publishTelegram) return publishNews(target.dataset.publishTelegram, `/api/news/${target.dataset.publishTelegram}/publish-telegram`, target);
+    if (target.dataset.togglePost) {
+      const postId = target.dataset.togglePost;
+      const details = document.querySelectorAll(`[id="postDetails-${postId}"], [id="publishedPostDetails-${postId}"]`);
+      details.forEach((node) => {
+        if (node instanceof HTMLElement) {
+          node.hidden = !node.hidden;
+          if (!node.hidden) {
+            node.scrollIntoView({ behavior: "smooth", block: "nearest" });
+            const textarea = node.querySelector("textarea");
+            textarea?.focus();
+          }
+        }
+      });
+      return;
+    }
 
     if (target.dataset.focusPost) {
       const textarea = $(`[data-post-text="${target.dataset.focusPost}"]`);
@@ -1657,6 +1910,7 @@ function bindEvents() {
     }
 
     if (target.dataset.confirmPost) return approvePost(target.dataset.confirmPost, target);
+    if (target.dataset.deletePost) return removePost(target.dataset.deletePost).catch((error) => setStatus("#workflowStatus", "ERROR", error.message));
     if (target.dataset.applySearch) return applySearchTemplate(Number(target.dataset.applySearch));
   });
 }

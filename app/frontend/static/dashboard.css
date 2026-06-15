@@ -122,6 +122,33 @@ button.secondary,
   box-shadow: none;
 }
 
+button.status-button {
+  width: min(100%, 560px);
+  color: var(--text);
+  background: rgba(255, 255, 255, 0.05);
+  border-color: rgba(255, 255, 255, 0.14);
+  position: relative;
+  overflow: hidden;
+  text-align: center;
+  margin-top: 0.5rem;
+}
+
+button.status-button:hover {
+  background: rgba(255, 255, 255, 0.08);
+}
+
+button.status-button.slim {
+  margin-top: 0.35rem;
+}
+
+button.workflow-primary,
+.link-button.workflow-primary {
+  color: #041a15;
+  background: linear-gradient(180deg, rgba(125, 211, 252, 0.98), rgba(52, 211, 153, 0.9));
+  border-color: rgba(52, 211, 153, 0.36);
+  box-shadow: 0 18px 36px rgba(52, 211, 153, 0.18);
+}
+
 .link-button.is-success {
   color: #052011;
   background: linear-gradient(180deg, rgba(52, 211, 153, 0.96), rgba(16, 185, 129, 0.86));
@@ -318,6 +345,10 @@ small,
 .quick-links,
 .hero-badges {
   flex-wrap: wrap;
+}
+
+.status-grid {
+  width: 100%;
 }
 
 .app-shell {
@@ -578,6 +609,17 @@ details[open] > summary::after {
   flex: 0 1 auto;
 }
 
+.source-limits {
+  margin: 0.25rem 0 0;
+  color: var(--muted-strong);
+  font-size: 0.9rem;
+  letter-spacing: 0.02em;
+}
+
+.source-limits--modal {
+  margin: 0.25rem 0 0.5rem;
+}
+
 .stack {
   display: grid;
   gap: 0.75rem;
@@ -745,11 +787,22 @@ details[open] > summary::after {
   gap: 0.25rem;
 }
 
+.source-summary-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.6rem;
+}
+
 .source-url {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
   max-width: 100%;
+}
+
+.source-type-pill {
+  flex: 0 0 auto;
 }
 
 .source-card-body,
@@ -787,6 +840,21 @@ details[open] > summary::after {
   text-align: center;
   width: min(100%, 560px);
   margin-inline: auto;
+}
+
+#sourcesCount {
+  display: inline-flex;
+  justify-content: center;
+  text-align: center;
+  width: min(100%, 560px);
+  margin-inline: auto;
+}
+
+.source-modal-counts {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: 0.65rem;
+  margin-top: 0.75rem;
 }
 
 #sourceSaveStatus {
@@ -893,6 +961,87 @@ details[open] > summary::after {
 
 .stage-card.is-active {
   box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.08), var(--shadow-soft);
+}
+
+button.stage-card {
+  width: 100%;
+  color: var(--text);
+  text-align: left;
+  justify-items: start;
+}
+
+button.stage-card:hover {
+  transform: translateY(-1px);
+}
+
+.pipeline-detail-box {
+  margin-top: 0.65rem;
+  min-height: 98px;
+}
+
+.cards {
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  align-items: start;
+}
+
+.news-card,
+.post-card {
+  display: grid;
+  gap: 0.7rem;
+  padding: 1rem;
+  border-radius: var(--radius-lg);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  background: rgba(255, 255, 255, 0.045);
+}
+
+.post-card__top {
+  display: flex;
+  justify-content: space-between;
+  gap: 0.75rem;
+  align-items: flex-start;
+}
+
+.post-card__meta {
+  color: var(--muted);
+  font-size: 0.88rem;
+}
+
+.post-card__excerpt {
+  color: var(--muted-strong);
+  margin: 0;
+}
+
+.post-card__status-hint {
+  color: var(--muted);
+  font-size: 0.88rem;
+}
+
+.post-card__details {
+  display: grid;
+  gap: 0.6rem;
+}
+
+.post-card__details[hidden] {
+  display: none;
+}
+
+.post-card__details textarea {
+  min-height: 180px;
+}
+
+.post-card__actions,
+.news-card .item-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+.post-summary-grid,
+#postsSummary {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+  gap: 0.65rem;
+  width: 100%;
 }
 
 .event-row {
@@ -1012,13 +1161,13 @@ details[open] > summary::after {
 }
 
 .modal::backdrop {
-  background: rgba(10, 18, 34, 0.46);
-  backdrop-filter: blur(4px);
+  background: rgba(10, 18, 34, 0.28);
+  backdrop-filter: blur(3px);
 }
 
 .modal-shell {
   padding: 1rem;
-  background: linear-gradient(180deg, rgba(18, 28, 47, 0.98), rgba(13, 22, 38, 0.96));
+  background: linear-gradient(180deg, rgba(20, 31, 52, 0.98), rgba(14, 23, 40, 0.96));
 }
 
 .modal-shell--wide {

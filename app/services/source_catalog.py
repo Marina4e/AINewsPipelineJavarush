@@ -48,6 +48,27 @@ SOURCE_SUGGESTIONS = [
     },
     {
         "type": SourceType.tg,
+        "name": "IT Ukraine Association",
+        "url": "https://t.me/itukraineassociation",
+        "topic_slug": "technology",
+        "description": "Новини української IT-спільноти, події та ринок технологій.",
+    },
+    {
+        "type": SourceType.tg,
+        "name": "IT Ukraine",
+        "url": "https://t.me/itukraine",
+        "topic_slug": "technology",
+        "description": "Профільний канал про український IT-ринок і спільноту.",
+    },
+    {
+        "type": SourceType.tg,
+        "name": "Telegraf UA",
+        "url": "https://t.me/Telegraf_UA_channel",
+        "topic_slug": "technology",
+        "description": "Українські новини, аналітика та медійні оновлення.",
+    },
+    {
+        "type": SourceType.tg,
         "name": "Ukraine Online",
         "url": "https://t.me/UaOnlii",
         "topic_slug": "technology",
@@ -59,19 +80,5 @@ SOURCE_SUGGESTIONS = [
         "url": "https://t.me/sotavisionmedia",
         "topic_slug": "science",
         "description": "Незалежні новини та аналітика про суспільні події.",
-    },
-    {
-        "type": SourceType.tg,
-        "name": "Abu Ali Express",
-        "url": "https://t.me/abualiexpress",
-        "topic_slug": "business",
-        "description": "Швидкі новини й оновлення про події на Близькому Сході.",
-    },
-    {
-        "type": SourceType.tg,
-        "name": "Sovetskaya Belorussiya",
-        "url": "https://t.me/sovbelarussia",
-        "topic_slug": "technology",
-        "description": "Сатиричний новинний канал із політичними та медійними темами.",
     },
 ]

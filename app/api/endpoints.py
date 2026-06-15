@@ -122,6 +122,30 @@ def _telegram_description(response: requests.Response) -> str:
     return response.reason or "невідома помилка"
 
 
+def _normalize_source_url(source_type, url: str) -> str:
+    value = normalize_text(url)
+    type_value = getattr(source_type, "value", source_type)
+    if type_value == "tg":
+        if value.startswith("@"):
+            return f"https://t.me/{value[1:]}"
+        if value.startswith("http://"):
+            value = "https://" + value[len("http://") :]
+        if value.startswith("https://telegram.me/"):
+            return "https://t.me/" + value[len("https://telegram.me/") :]
+        if value.startswith("http://telegram.me/"):
+            return "https://t.me/" + value[len("http://telegram.me/") :]
+        if value.startswith("https://t.me/"):
+            return value
+        if value.startswith("http://t.me/"):
+            return "https://t.me/" + value[len("http://t.me/") :]
+        if value.startswith("t.me/"):
+            return f"https://{value}"
+        if value.startswith("telegram.me/"):
+            return "https://t.me/" + value[len("telegram.me/") :]
+        return f"https://t.me/{value}"
+    return value
+
+
 def _telegram_connection_check(settings=None) -> TelegramCheckResponse:
     settings = settings or get_settings()
     if not settings.telegram_bot_token:
@@ -285,18 +309,18 @@ def list_sources(db: Session = Depends(get_db)) -> list[Source]:
 @router.post("/sources/", response_model=SourceRead, status_code=201, dependencies=[AdminOnly])
 def create_source(payload: SourceCreate, db: Session = Depends(get_db)) -> Source:
     _ensure_topic_exists(db, payload.topic_id)
-    normalized_url = normalize_text(payload.url).lower()
+    normalized_url = _normalize_source_url(payload.type, payload.url).lower()
     duplicate = next(
         (
             source
             for source in db.query(Source).filter(Source.type == payload.type).all()
-            if normalize_text(source.url).lower() == normalized_url
+            if _normalize_source_url(source.type, source.url).lower() == normalized_url
         ),
         None,
     )
     if duplicate:
         raise HTTPException(status_code=409, detail="Таке джерело вже додано.")
-    source = Source(**payload.model_dump())
+    source = Source(**{**payload.model_dump(), "url": _normalize_source_url(payload.type, payload.url)})
     db.add(source)
     db.commit()
     db.refresh(source)
@@ -311,6 +335,24 @@ def update_source(source_id: str, payload: SourceUpdate, db: Session = Depends(g
 
     data = payload.model_dump(exclude_unset=True)
     _ensure_topic_exists(db, data.get("topic_id"))
+    if "type" in data and "url" in data:
+        data["url"] = _normalize_source_url(data["type"], data["url"])
+    elif "url" in data:
+        data["url"] = _normalize_source_url(data.get("type", source.type), data["url"])
+
+    if "type" in data or "url" in data:
+        candidate_type = data.get("type", source.type)
+        candidate_url = _normalize_source_url(candidate_type, data.get("url", source.url)).lower()
+        duplicate = next(
+            (
+                item
+                for item in db.query(Source).filter(Source.type == candidate_type, Source.id != source.id).all()
+                if _normalize_source_url(item.type, item.url).lower() == candidate_url
+            ),
+            None,
+        )
+        if duplicate:
+            raise HTTPException(status_code=409, detail="Таке джерело вже додано.")
     for field, value in data.items():
         setattr(source, field, value)
 
@@ -520,6 +562,16 @@ def reject_post(post_id: str, payload: RejectPostRequest, db: Session = Depends(
     db.commit()
     db.refresh(post)
     return post
+
+
+@router.delete("/posts/{post_id}", status_code=204, dependencies=[AdminOnly])
+def delete_post(post_id: str, db: Session = Depends(get_db)) -> None:
+    post = db.get(Post, post_id)
+    if not post:
+        raise HTTPException(status_code=404, detail="Post not found")
+
+    db.delete(post)
+    db.commit()
 
 
 @router.post("/posts/{post_id}/publish", response_model=TaskResponse, dependencies=[AdminOnly])

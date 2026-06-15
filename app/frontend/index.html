@@ -21,7 +21,7 @@
       </div>
       <div class="top-actions">
         <button id="openSettingsBtn" class="secondary" type="button" data-open-section="settingsSection">⚙️ Налаштування</button>
-        <button id="runPipelineBtn" type="button">🚀 Запустити конвеєр</button>
+        <button id="runPipelineBtn" class="workflow-primary" type="button">🚀 Запустити конвеєр</button>
         <button id="pausePipelineBtn" class="secondary" type="button">⏸ Зупинити</button>
         <button id="refreshBtn" class="secondary" type="button">🔄 Оновити панель</button>
         <a id="telegramChannelLinkTop" class="link-button secondary" href="#" target="_blank" rel="noreferrer" hidden>📢 Відкрити Telegram-канал</a>
@@ -31,9 +31,9 @@
     <div class="app-shell">
       <aside class="sidebar" aria-label="Навігація">
         <button class="nav-item" type="button" data-open-section="sourcesSection">📰 Джерела</button>
+        <button class="nav-item" type="button" data-open-section="logsSection">🚀 Запуск</button>
         <button class="nav-item" type="button" data-open-section="overviewSection">📊 Огляд</button>
         <button class="nav-item" type="button" data-open-section="filtersSection">🔍 Фільтри</button>
-        <button class="nav-item" type="button" data-open-section="logsSection">🚀 Запуск</button>
         <button class="nav-item" type="button" data-open-section="automationSection">🤖 AI та Telegram</button>
         <button class="nav-item" type="button" data-open-section="postsSection">📄 Пости</button>
       </aside>
@@ -106,10 +106,12 @@
           <div class="section-body">
             <div class="section-head section-head--center">
               <p class="lead">Підключай RSS-сайти й Telegram-канали через один зрозумілий сценарій без технічного шуму.</p>
+              <p class="source-limits">Мінімум 1 джерело · рекомендовано 3–10 · максимум 20 · якщо Telegram не додано, крок Telegram буде пропущено</p>
               <div class="section-actions section-actions--center section-actions--stack">
-                <button id="openSourceModalBtn" type="button">➕ Додати джерело</button>
-                <div id="sourcesStatus" class="status">Джерела ще не додано</div>
-                <button id="startPipelineFromSourcesBtn" class="secondary" type="button">🚀 Запустити конвеєр</button>
+                <button id="openSourceModalBtn" class="workflow-primary" type="button">➕ Додати джерело</button>
+                <button id="sourcesStatus" class="status status-button" type="button">Джерела ще не додано</button>
+                <button id="sourcesCount" class="status status-button slim" type="button">Джерел додано: 0</button>
+                <button id="startPipelineFromSourcesBtn" class="workflow-primary" type="button">🚀 Запустити конвеєр</button>
               </div>
             </div>
 
@@ -140,6 +142,45 @@
                 </div>
               </div>
             </details>
+          </div>
+        </details>
+
+        <details id="logsSection" class="section">
+          <summary>
+            <span>🚀 Запуск конвеєра новин</span>
+            <small>Статус, етапи і останні події</small>
+          </summary>
+          <div class="section-body compact-grid">
+            <article class="mini-card">
+              <h2>Візуальний процес конвеєра</h2>
+              <p class="hint">Натискай на крок, щоб побачити пояснення. Після завершення буде кнопка переходу до огляду новин.</p>
+              <div class="button-row">
+                <button id="openPipelineModalBtn" class="secondary" type="button">📋 Деталі процесу</button>
+              <button id="pipelineGoToOverviewBtn" class="workflow-primary" type="button" hidden>📊 Перейти до огляду новин</button>
+              </div>
+              <div id="pipelineReadyStatus" class="status">Конвеєр очікує запуску</div>
+              <div id="workflowStatus" class="status">Конвеєр очікує запуску</div>
+              <div id="pipelineStageDetails" class="result-box pipeline-detail-box"></div>
+              <div id="pipelineResult" class="result-box"></div>
+            </article>
+
+            <article class="mini-card">
+              <h2>Етапи роботи</h2>
+              <div id="pipelineStageList" class="stage-list"></div>
+            </article>
+
+            <article class="mini-card">
+              <h2>Останні події</h2>
+              <div id="logsList" class="events-list"></div>
+            </article>
+
+            <article class="mini-card">
+              <h2>Стан джерел</h2>
+              <div class="status-grid">
+                <div id="rssReadyStatus" class="status">RSS очікує запуску</div>
+                <div id="telegramReadyStatus" class="status">Telegram очікує запуску</div>
+              </div>
+            </article>
           </div>
         </details>
 
@@ -184,6 +225,7 @@
             </div>
 
             <div class="overview-actions">
+              <button class="secondary" type="button" data-open-section="filtersSection">🔍 Правила відбору</button>
               <button class="secondary" type="button" data-open-section="postsSection">📄 Перейти до постів</button>
             </div>
           </div>
@@ -191,10 +233,14 @@
 
         <details id="filtersSection" class="section">
           <summary>
-            <span>🔍 Правила відбору новин</span>
+            <span>🔍 Огляд новин і правила</span>
             <small>Ключові слова, пошук і результати</small>
           </summary>
           <div class="section-body compact-grid">
+            <div class="section-actions section-actions--center">
+              <button class="secondary" type="button" data-open-section="overviewSection">📊 До огляду</button>
+              <button class="secondary" type="button" data-open-section="postsSection">📄 До публікацій</button>
+            </div>
             <article class="mini-card">
               <h2>Ключові правила</h2>
               <p class="hint">Цей блок формує тематичні правила відбору. Достатньо назви, опису та ключових слів.</p>
@@ -266,7 +312,7 @@
                 <textarea id="aiPromptPreview" readonly>Створи короткий Telegram-пост. Додай емодзі. Додай CTA. Максимум 500 символів.</textarea>
               </div>
               <div class="button-row">
-                <button id="openAiTestBtn" type="button">🧪 Перевірити генерацію</button>
+                <button id="openAiTestBtn" class="workflow-primary" type="button">🧪 Перевірити генерацію</button>
               </div>
             </article>
 
@@ -295,82 +341,35 @@
 
         <details id="postsSection" class="section">
           <summary>
-            <span>📄 Пости і новини</span>
-            <small>Історія публікацій і готові матеріали</small>
+            <span>📄 Історія публікацій</span>
+            <small>Новини, AI-редагування і підтвердження</small>
           </summary>
           <div class="section-body">
+            <div class="section-head section-head--center">
+              <p class="lead">Картки показують, де зараз матеріал: новий, готовий до перевірки, опублікований або з помилкою.</p>
+              <div class="section-actions section-actions--center">
+                <button id="refreshPostsBtn" class="workflow-primary" type="button">🔄 Оновити список</button>
+                <button class="secondary" type="button" data-open-section="overviewSection">📊 До огляду</button>
+              </div>
+              <div id="postsSummary" class="status-grid"></div>
+            </div>
+
             <details class="subdetails" open>
-              <summary>Історія публікацій</summary>
+              <summary>Усі пости</summary>
               <div class="subbody">
-                <div class="toolbar">
-                  <select id="postStatusFilter">
-                    <option value="pending_approval">Очікують підтвердження</option>
-                    <option value="generated">Згенеровані</option>
-                    <option value="failed">Помилки</option>
-                    <option value="published">Опубліковані</option>
-                    <option value="">Усі пости</option>
-                  </select>
-                  <button id="refreshPostsBtn" class="secondary" type="button">Оновити</button>
-                </div>
-                <div class="table-wrap">
-                  <table class="posts-table">
-                    <thead>
-                      <tr>
-                        <th>Дата</th>
-                        <th>Джерело</th>
-                        <th>Заголовок</th>
-                        <th>Статус</th>
-                      </tr>
-                    </thead>
-                    <tbody id="postsList"></tbody>
-                  </table>
-                </div>
-                <details class="subdetails" open>
-                  <summary>Опубліковані пости</summary>
-                  <div class="subbody">
-                    <div id="publishedList" class="list cards"></div>
-                  </div>
-                </details>
+                <div id="postsList" class="list cards"></div>
+              </div>
+            </details>
+
+            <details class="subdetails">
+              <summary>Опубліковані пости</summary>
+              <div class="subbody">
+                <div id="publishedList" class="list cards"></div>
               </div>
             </details>
           </div>
         </details>
 
-        <details id="logsSection" class="section">
-          <summary>
-            <span>🚀 Запуск конвеєра новин</span>
-            <small>Статус, етапи і останні події</small>
-          </summary>
-          <div class="section-body compact-grid">
-            <article class="mini-card">
-              <h2>Візуальний процес конвеєра</h2>
-              <div class="button-row">
-                <button id="openPipelineModalBtn" class="secondary" type="button">📋 Деталі процесу</button>
-              </div>
-              <div id="pipelineReadyStatus" class="status">Конвеєр очікує запуску</div>
-              <div id="workflowStatus" class="status">Конвеєр очікує запуску</div>
-              <div id="pipelineResult" class="result-box"></div>
-            </article>
-
-            <article class="mini-card">
-              <h2>Етапи роботи</h2>
-              <div id="pipelineStageList" class="stage-list"></div>
-            </article>
-
-            <article class="mini-card">
-              <h2>Останні події</h2>
-              <div id="logsList" class="events-list"></div>
-            </article>
-
-            <article class="mini-card">
-              <h2>Стан джерел</h2>
-              <div class="status-grid">
-                <div id="rssReadyStatus" class="status">RSS очікує запуску</div>
-                <div id="telegramReadyStatus" class="status">Telegram очікує запуску</div>
-              </div>
-            </article>
-          </div>
-        </details>
       </main>
     </div>
 
@@ -388,6 +387,7 @@
           <button id="sourceTabSite" class="tab active" type="button">RSS сайт</button>
           <button id="sourceTabTg" class="tab" type="button">Telegram канал</button>
         </div>
+        <p class="source-limits source-limits--modal">Мінімум 1 · рекомендовано 3–10 · максимум 20. Telegram-канал не зникає після збереження, а крок Telegram буде пропущено, якщо канал не підключено.</p>
 
         <select name="type" id="sourceType" hidden>
           <option value="site">RSS</option>
@@ -398,9 +398,20 @@
         <div id="sourceUrlHint" class="hint"></div>
         <select name="topic_id" id="sourceTopic"></select>
         <input name="enabled" type="hidden" value="true" />
-        <button id="sourceSubmitBtn" type="submit">Зберегти</button>
+        <button id="sourceSubmitBtn" class="workflow-primary" type="submit">Зберегти</button>
 
         <div id="sourceSaveStatus" class="status slim"></div>
+        <div class="status-grid source-modal-counts">
+          <div id="sourceModalRssCount" class="status">RSS: 0</div>
+          <div id="sourceModalTgCount" class="status">Telegram: 0</div>
+          <div id="sourceModalTotalCount" class="status">Всього: 0</div>
+        </div>
+        <details class="subdetails" open>
+          <summary>Додані джерела</summary>
+          <div class="subbody">
+            <div id="sourceModalSourcesList" class="list compact"></div>
+          </div>
+        </details>
         <details class="subdetails subdetails--cta" open>
           <summary>⬇ Вибрати й застосувати шаблон</summary>
           <div class="subbody source-catalogs">
@@ -429,6 +440,9 @@
         <p class="hint">Під час запуску видно кожен крок: джерела, Telegram, AI, чернетки та публікація.</p>
         <div id="pipelineModalStageList" class="stage-list"></div>
         <div id="pipelineModalResult" class="result-box"></div>
+        <div class="button-row pipeline-next-actions">
+          <button id="pipelineModalGoToOverviewBtn" class="workflow-primary" type="button" hidden>📊 Перейти до огляду новин</button>
+        </div>
       </div>
     </dialog>
 
