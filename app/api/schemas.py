@@ -120,6 +120,15 @@ class OpenAICheckResponse(BaseModel):
     generated_text: str | None = None
 
 
+class TelegramCheckResponse(BaseModel):
+    ok: bool
+    status: str
+    message: str
+    bot_ok: bool = False
+    channel_ok: bool = False
+    target_channel: str | None = None
+
+
 class ManualNewsCreate(BaseModel):
     title: str = Field(min_length=3, max_length=500)
     summary: str = Field(min_length=10)

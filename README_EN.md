@@ -48,6 +48,37 @@ docker compose ps
 
 - `http://localhost:8000/`
 
+### Fastest frontend choice for a same-day delivery
+
+The quickest and safest option for this project is:
+
+- a single static dashboard in `app/frontend/`
+- no separate React/Vue build step
+- no per-request Jinja rendering
+- one `docker compose up -d` for the whole stack
+
+This is already wired through the main `app` service, which serves both the API and the dashboard.
+
+### Quick verification commands
+
+```powershell
+docker compose ps
+docker compose logs --tail=80 app
+docker compose logs --tail=80 flower
+Invoke-WebRequest http://localhost:8000/api/health
+Invoke-WebRequest http://localhost:8000/api/public-status
+```
+
+Admin checks:
+
+```powershell
+$headers = @{ 'X-API-Key' = 'PASTE_ADMIN_API_KEY_HERE' }
+Invoke-RestMethod -Headers $headers -Uri http://localhost:8000/api/settings
+Invoke-RestMethod -Headers $headers -Method Post -Uri http://localhost:8000/api/openai/check
+Invoke-RestMethod -Headers $headers -Method Post -Uri http://localhost:8000/api/pipeline/run
+Invoke-RestMethod -Headers $headers -Uri http://localhost:8000/api/logs/errors
+```
+
 ## Important: `ADMIN_API_KEY`
 
 `ADMIN_API_KEY` is stored only in `.env` at the repository root.

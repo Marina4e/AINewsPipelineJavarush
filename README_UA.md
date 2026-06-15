@@ -48,6 +48,46 @@ docker compose ps
 
 - `http://localhost:8000/`
 
+### Найшвидший фронтенд для здачі сьогодні
+
+Для цього проєкта найшвидше рішення таке:
+
+- одна статична панель у `app/frontend/`
+- без окремого React/Vue білду
+- без Jinja-рендерингу на кожен запит
+- один `docker compose up -d` для всього стеку
+
+Це вже працює через головний сервіс `app`, який віддає і API, і dashboard.
+
+### Команди для швидкої перевірки
+
+Базовий стан:
+
+```powershell
+docker compose ps
+docker compose logs --tail=80 app
+docker compose logs --tail=80 flower
+Invoke-WebRequest http://localhost:8000/api/health
+Invoke-WebRequest http://localhost:8000/api/public-status
+```
+
+Адмінські перевірки:
+
+```powershell
+$headers = @{ 'X-API-Key' = 'PASTE_ADMIN_API_KEY_HERE' }
+Invoke-RestMethod -Headers $headers -Uri http://localhost:8000/api/settings
+Invoke-RestMethod -Headers $headers -Method Post -Uri http://localhost:8000/api/openai/check
+Invoke-RestMethod -Headers $headers -Method Post -Uri http://localhost:8000/api/pipeline/run
+Invoke-RestMethod -Headers $headers -Uri http://localhost:8000/api/logs/errors
+```
+
+Telegram-частина:
+
+- відкрий `http://localhost:8000/`
+- введи `ADMIN_API_KEY` у dashboard один раз для браузера
+- перевір `OpenAI`, `Pipeline` і `Delivery`
+- дивись лог контейнера `app`, де працюють FastAPI, Celery worker, Celery beat і Telegram bot
+
 ## Важливо про `ADMIN_API_KEY`
 
 `ADMIN_API_KEY` зберігається тільки в `.env` у корені проєкту.

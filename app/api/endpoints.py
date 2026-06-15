@@ -4,6 +4,7 @@ from pathlib import Path
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import or_
 from sqlalchemy.orm import Session
+import requests
 
 from app.ai.openai_client import OpenAIPostClient
 from app.api.auth import require_api_key
@@ -25,6 +26,7 @@ from app.api.schemas import (
     SourceRead,
     SourceSuggestion,
     SourceUpdate,
+    TelegramCheckResponse,
     TaskResponse,
     TopicCreate,
     TopicRead,
@@ -102,6 +104,94 @@ def _dashboard_settings_payload(db: Session, settings=None) -> DashboardSettings
         telegram_bot_configured=bool(settings.telegram_bot_token),
         telegram_reader_configured=bool(settings.telegram_api_id and settings.telegram_api_hash),
         last_successful_delivery_at=last_delivery.published_at if last_delivery else None,
+    )
+
+
+def _telegram_api_url(token: str) -> str:
+    return f"https://api.telegram.org/bot{token}"
+
+
+def _telegram_description(response: requests.Response) -> str:
+    try:
+        payload = response.json()
+    except Exception:
+        return response.text.strip() or response.reason or "невідома помилка"
+
+    if isinstance(payload, dict):
+        return str(payload.get("description") or payload.get("error") or response.reason or "невідома помилка")
+    return response.reason or "невідома помилка"
+
+
+def _telegram_connection_check(settings=None) -> TelegramCheckResponse:
+    settings = settings or get_settings()
+    if not settings.telegram_bot_token:
+        return TelegramCheckResponse(
+            ok=False,
+            status="missing_bot",
+            message="Telegram ще не підключено. Додай Bot Token у блоці Налаштування.",
+            bot_ok=False,
+            channel_ok=False,
+            target_channel=settings.telegram_target_channel or None,
+        )
+    if not settings.telegram_target_channel:
+        return TelegramCheckResponse(
+            ok=False,
+            status="missing_channel",
+            message="Telegram ще не підключено. Вкажи Channel Username у блоці Налаштування.",
+            bot_ok=False,
+            channel_ok=False,
+            target_channel=None,
+        )
+
+    api_url = _telegram_api_url(settings.telegram_bot_token)
+    bot_ok = False
+    channel_ok = False
+    bot_message = ""
+    channel_message = ""
+
+    try:
+        bot_response = requests.get(f"{api_url}/getMe", timeout=8)
+        bot_ok = bool(bot_response.ok and bot_response.json().get("ok"))
+        if not bot_ok:
+            bot_message = _telegram_description(bot_response)
+    except requests.RequestException as exc:
+        bot_message = str(exc)
+
+    try:
+        channel_response = requests.post(
+            f"{api_url}/getChat",
+            json={"chat_id": settings.telegram_target_channel},
+            timeout=8,
+        )
+        channel_ok = bool(channel_response.ok and channel_response.json().get("ok"))
+        if not channel_ok:
+            channel_message = _telegram_description(channel_response)
+    except requests.RequestException as exc:
+        channel_message = str(exc)
+
+    if bot_ok and channel_ok:
+        return TelegramCheckResponse(
+            ok=True,
+            status="verified",
+            message="Telegram бот і канал підтверджені.",
+            bot_ok=True,
+            channel_ok=True,
+            target_channel=settings.telegram_target_channel,
+        )
+
+    details: list[str] = []
+    if not bot_ok:
+        details.append(f"бот: {bot_message or 'недоступний'}")
+    if not channel_ok:
+        details.append(f"канал: {channel_message or 'недоступний'}")
+
+    return TelegramCheckResponse(
+        ok=False,
+        status="error",
+        message="Telegram не підтвердив підключення. Перевір бот і канал у блоці Налаштування. " + "; ".join(details),
+        bot_ok=bot_ok,
+        channel_ok=channel_ok,
+        target_channel=settings.telegram_target_channel,
     )
 
 
@@ -195,6 +285,17 @@ def list_sources(db: Session = Depends(get_db)) -> list[Source]:
 @router.post("/sources/", response_model=SourceRead, status_code=201, dependencies=[AdminOnly])
 def create_source(payload: SourceCreate, db: Session = Depends(get_db)) -> Source:
     _ensure_topic_exists(db, payload.topic_id)
+    normalized_url = normalize_text(payload.url).lower()
+    duplicate = next(
+        (
+            source
+            for source in db.query(Source).filter(Source.type == payload.type).all()
+            if normalize_text(source.url).lower() == normalized_url
+        ),
+        None,
+    )
+    if duplicate:
+        raise HTTPException(status_code=409, detail="Таке джерело вже додано.")
     source = Source(**payload.model_dump())
     db.add(source)
     db.commit()
@@ -314,38 +415,13 @@ async def generate_manually(payload: GenerateRequest) -> GenerateResponse:
 
 @router.post("/openai/check", response_model=OpenAICheckResponse, dependencies=[AdminOnly])
 async def check_openai_key() -> OpenAICheckResponse:
-    settings = get_settings()
-    if not settings.openai_api_key:
-        return OpenAICheckResponse(
-            ok=False,
-            status="missing",
-            message="OpenAI API Key не знайдено у .env.",
-        )
+    result = await OpenAIPostClient().check_connection()
+    return OpenAICheckResponse(**result)
 
-    try:
-        generated = await OpenAIPostClient().generate_post(
-            text="Коротка тестова новина для перевірки OpenAI API key.",
-            title="OpenAI key check",
-            force_demo=False,
-        )
-        return OpenAICheckResponse(
-            ok=True,
-            status="verified",
-            message="OpenAI API Key успішно перевірено реальним запитом.",
-            generated_text=generated,
-        )
-    except RuntimeError as exc:
-        return OpenAICheckResponse(
-            ok=False,
-            status="error",
-            message=str(exc),
-        )
-    except Exception as exc:
-        return OpenAICheckResponse(
-            ok=False,
-            status="error",
-            message="OpenAI API Key недійсний або сервіс тимчасово недоступний.",
-        )
+
+@router.post("/telegram/check", response_model=TelegramCheckResponse, dependencies=[AdminOnly])
+def check_telegram_connection() -> TelegramCheckResponse:
+    return _telegram_connection_check()
 
 
 @router.post("/news/manual", response_model=NewsRead, status_code=201, dependencies=[AdminOnly])
