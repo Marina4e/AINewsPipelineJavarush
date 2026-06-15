@@ -15,6 +15,13 @@ docker compose build
 docker compose up -d
 ```
 
+If you change the frontend or app code, rebuild only the `app` service:
+
+```powershell
+docker compose build app
+docker compose up -d app
+```
+
 Recommended frontend approach for a fast deadline:
 
 - keep the dashboard as a single static page served by FastAPI
@@ -35,6 +42,7 @@ Main links:
 - Swagger: `http://localhost:8000/docs`
 - Public status: `http://localhost:8000/api/public-status`
 - Flower: `http://localhost:5555/`
+- Celery: `http://localhost:5555/`
 - Adminer: `http://localhost:8082/`
 - Redis Commander: `http://localhost:8081/`
 
@@ -44,6 +52,7 @@ Useful commands:
 docker compose ps
 docker compose logs --tail=80 app
 docker compose logs --tail=80 flower
+Invoke-WebRequest http://localhost:5555/
 Invoke-WebRequest http://localhost:8000/api/health
 Invoke-WebRequest http://localhost:8000/api/public-status
 Invoke-WebRequest http://localhost:8000/docs

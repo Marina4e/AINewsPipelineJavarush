@@ -1,4 +1,5 @@
 import hashlib
+import logging
 from pathlib import Path
 
 from fastapi import APIRouter, Depends, HTTPException, Query
@@ -20,6 +21,7 @@ from app.api.schemas import (
     ManualNewsCreate,
     NewsRead,
     OpenAICheckResponse,
+    PipelineControlRequest,
     PostRead,
     RejectPostRequest,
     SourceCreate,
@@ -35,13 +37,20 @@ from app.api.schemas import (
 from app.config import get_settings
 from app.database import get_db
 from app.models import Keyword, NewsItem, Post, PostStatus, Source, Topic, utc_now
-from app.services.settings_service import get_auto_publish_posts, set_auto_publish_posts
+from app.services.settings_service import (
+    get_auto_publish_posts,
+    get_pipeline_current_task_id,
+    set_auto_publish_posts,
+    set_pipeline_current_task_id,
+    set_pipeline_stop_task_id,
+)
 from app.services.source_catalog import SOURCE_SUGGESTIONS
 from app.tasks import celery_app, generate_post_task, parse_all_sources_task, publish_post_task
 from app.utils import normalize_text
 
 router = APIRouter()
 AdminOnly = Depends(require_api_key)
+logger = logging.getLogger(__name__)
 
 
 def _slugify(value: str) -> str:
@@ -584,9 +593,24 @@ def queue_publishing(post_id: str, db: Session = Depends(get_db)) -> TaskRespons
 
 
 @router.post("/pipeline/run", response_model=TaskResponse, dependencies=[AdminOnly])
-def run_pipeline() -> TaskResponse:
+def run_pipeline(db: Session = Depends(get_db)) -> TaskResponse:
     task = parse_all_sources_task.delay()
+    set_pipeline_current_task_id(db, task.id)
     return TaskResponse(task_id=task.id, message="Збір новин запущено")
+
+
+@router.post("/pipeline/stop", response_model=TaskResponse, dependencies=[AdminOnly])
+def stop_pipeline(payload: PipelineControlRequest | None = None, db: Session = Depends(get_db)) -> TaskResponse:
+    task_id = (payload.task_id if payload else None) or get_pipeline_current_task_id(db)
+    if task_id:
+        set_pipeline_stop_task_id(db, task_id)
+        try:
+            celery_app.control.revoke(task_id, terminate=True, signal="SIGTERM")
+        except Exception as exc:  # pragma: no cover - best-effort control path
+            logger.warning("Не вдалося відкликати pipeline task %s: %s", task_id, exc)
+        return TaskResponse(task_id=task_id, message="Конвеєр новин зупинено")
+
+    return TaskResponse(task_id="", message="Конвеєр новин уже зупинено")
 
 
 @router.get("/tasks/{task_id}", dependencies=[AdminOnly])
@@ -605,11 +629,12 @@ def read_task_status(task_id: str) -> dict:
 @router.get("/pipeline/status", dependencies=[AdminOnly])
 def read_pipeline_status(task_id: str | None = None, db: Session = Depends(get_db)) -> dict:
     # Узагальнений статус потрібен для прогресу конвеєра без перезавантаження сторінки.
+    current_task_id = task_id or get_pipeline_current_task_id(db)
     task_state = None
     task_meta = {}
     task_result = {}
-    if task_id:
-        result = celery_app.AsyncResult(task_id)
+    if current_task_id:
+        result = celery_app.AsyncResult(current_task_id)
         task_state = result.state
         task_meta = result.info if isinstance(result.info, dict) else {}
         task_result = result.result if result.ready() and isinstance(result.result, dict) else {}
@@ -619,6 +644,7 @@ def read_pipeline_status(task_id: str | None = None, db: Session = Depends(get_d
         for status in PostStatus
     }
     return {
+        "current_task_id": current_task_id,
         "task_state": task_state,
         "task_meta": task_meta,
         "task_result": task_result,

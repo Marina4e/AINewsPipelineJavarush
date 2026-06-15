@@ -70,3 +70,11 @@ def test_can_delete_post_with_api_key() -> None:
         )
 
     assert delete_response.status_code == 204
+
+
+def test_can_stop_pipeline_with_api_key() -> None:
+    with TestClient(app) as client:
+        response = client.post("/api/pipeline/stop", headers={"X-API-Key": "test-secret-key"})
+
+    assert response.status_code == 200
+    assert "зупин" in response.json()["message"].lower()

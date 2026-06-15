@@ -44,7 +44,16 @@ docker compose up -d
 docker compose ps
 ```
 
-### 4. Відкрий dashboard
+### 4. Якщо змінював фронтенд або код
+
+Після правок достатньо перебудувати тільки сервіс `app`:
+
+```powershell
+docker compose build app
+docker compose up -d app
+```
+
+### 5. Відкрий dashboard
 
 - `http://localhost:8000/`
 
@@ -67,6 +76,7 @@ docker compose ps
 docker compose ps
 docker compose logs --tail=80 app
 docker compose logs --tail=80 flower
+Invoke-WebRequest http://localhost:5555/
 Invoke-WebRequest http://localhost:8000/api/health
 Invoke-WebRequest http://localhost:8000/api/public-status
 ```

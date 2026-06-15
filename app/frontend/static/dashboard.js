@@ -1,101 +1,116 @@
-const state = {
-  publicStatus: null,
-  settings: null,
-  telegramCheckResult: null,
-  openaiCheckResult: null,
-  topics: [],
-  keywords: [],
-  sources: [],
-  sourceSuggestions: [],
-  customSourceSuggestions: readJson("customSourceSuggestions", { site: [], tg: [] }),
-  news: [],
-  posts: [],
-  errorLogs: [],
-  pipelineStatus: null,
-  pipelineTaskId: sessionStorage.getItem("pipelineTaskId") || "",
-  pipelineStepFocus: "",
-  sourceTab: localStorage.getItem("dashboardSourceTab") === "tg" ? "tg" : "site",
-  savedSearches: readJson("savedNewsSearches", []),
-  taskTimers: new Map(),
-  uiPaused: false,
-};
+const SETTINGS_DRAFT_KEY = "newsPublisherSettingsDraft";
+const SOURCE_TEMPLATE_QUERY_KEY = "newsPublisherSourceTemplateQuery";
+const ADMIN_API_KEY_KEY = "adminApiKey";
 
 const SOURCE_EXAMPLE_FALLBACKS = {
   site: [
     {
       name: "OpenAI News",
       url: "https://openai.com/news/rss.xml",
-      topic_slug: "ai",
-      description: "Новини OpenAI, моделі, API та релізи продуктів.",
+      description: "Official OpenAI product and research updates.",
     },
     {
       name: "Anthropic",
       url: "https://www.anthropic.com/news",
-      topic_slug: "ai",
-      description: "Офіційні новини Anthropic про Claude та AI-дослідження.",
+      description: "Claude updates and AI research from Anthropic.",
     },
     {
       name: "Google DeepMind",
       url: "https://deepmind.google/discover/blog/",
-      topic_slug: "ai",
-      description: "Дослідження, моделі та публікації DeepMind.",
+      description: "Research posts and model announcements from DeepMind.",
     },
     {
       name: "Hugging Face",
       url: "https://huggingface.co/blog/feed.xml",
-      topic_slug: "ai",
-      description: "Оновлення open-source AI та ML-екосистеми.",
+      description: "Open-source AI and machine learning ecosystem updates.",
     },
     {
       name: "VentureBeat AI",
       url: "https://venturebeat.com/category/ai/feed/",
-      topic_slug: "ai",
-      description: "Швидкі новини про AI, стартапи й корпоративні запуски.",
+      description: "Fast AI news about startups, products, and market shifts.",
     },
   ],
   tg: [
     {
       name: "NEXTA Live",
       url: "https://t.me/nexta_live",
-      topic_slug: "technology",
-      description: "Оперативні новини та суспільно-політичні оновлення.",
+      description: "Fast channel for breaking news and social updates.",
     },
     {
       name: "IT Ukraine Association",
       url: "https://t.me/itukraineassociation",
-      topic_slug: "technology",
-      description: "Новини української IT-спільноти, події та ринок технологій.",
+      description: "Ukrainian IT community, events, and market updates.",
     },
     {
       name: "IT Ukraine",
       url: "https://t.me/itukraine",
-      topic_slug: "technology",
-      description: "Профільний канал про український IT-ринок і спільноту.",
+      description: "Ukrainian technology news and community updates.",
     },
     {
       name: "Telegraf UA",
       url: "https://t.me/Telegraf_UA_channel",
-      topic_slug: "technology",
-      description: "Українські новини, аналітика та медійні оновлення.",
+      description: "Ukrainian media, analysis, and breaking updates.",
     },
     {
       name: "Ukraine Online",
       url: "https://t.me/UaOnlii",
-      topic_slug: "technology",
-      description: "Українські новини, оперативні оновлення та соціальні теми.",
+      description: "Operational Ukrainian news and social topics.",
     },
     {
       name: "Sota.Vision",
       url: "https://t.me/sotavisionmedia",
-      topic_slug: "science",
-      description: "Незалежні новини та аналітика про суспільні події.",
+      description: "Independent social and public affairs coverage.",
     },
   ],
 };
 
+const PIPELINE_STEPS = [
+  { key: "Pipeline Started", label: "Start" },
+  { key: "RSS Processing", label: "RSS" },
+  { key: "Telegram Processing", label: "Telegram" },
+  { key: "AI Processing", label: "Filters" },
+  { key: "Post Generation", label: "AI" },
+  { key: "Publishing", label: "Publish" },
+  { key: "Completed", label: "Done" },
+];
+
+const DEFAULT_SETTINGS_DRAFT = {
+  adminApiKey: "",
+  openaiApiKey: "",
+  telegramApiId: "",
+  telegramApiHash: "",
+  telegramChannel: "",
+  parsingInterval: "",
+  aiGenerationInterval: "",
+  publishingInterval: "",
+  language: "Ukrainian",
+  duplicateDetection: true,
+  sourceFiltering: true,
+  autoPublishPosts: false,
+};
+
+const state = {
+  publicStatus: null,
+  settings: null,
+  openaiCheckResult: null,
+  telegramCheckResult: null,
+  sources: [],
+  sourceSuggestions: [],
+  keywords: [],
+  news: [],
+  posts: [],
+  errorLogs: [],
+  pipelineStatus: null,
+  pipelineTaskId: sessionStorage.getItem("pipelineTaskId") || "",
+  pipelineStepFocus: "",
+  selectedPostId: "",
+  sourceTemplateQuery: readJson(SOURCE_TEMPLATE_QUERY_KEY, ""),
+  settingsDraft: loadSettingsDraft(),
+  uiPaused: false,
+  taskTimers: new Map(),
+};
+
 const $ = (selector) => document.querySelector(selector);
-const adminKeyInput = $("#apiKey");
-if (adminKeyInput) adminKeyInput.value = sessionStorage.getItem("adminApiKey") || "";
 
 function readJson(key, fallback) {
   try {
@@ -110,14 +125,51 @@ function writeJson(key, value) {
   localStorage.setItem(key, JSON.stringify(value));
 }
 
-function normalize(value) {
-  return String(value ?? "").trim();
+function loadSettingsDraft() {
+  const draft = readJson(SETTINGS_DRAFT_KEY, DEFAULT_SETTINGS_DRAFT);
+  const merged = { ...DEFAULT_SETTINGS_DRAFT, ...draft };
+  if (merged.adminApiKey) {
+    sessionStorage.setItem(ADMIN_API_KEY_KEY, merged.adminApiKey);
+  }
+  return merged;
 }
 
-function persistSourceTab(type) {
-  state.sourceTab = type === "tg" ? "tg" : "site";
-  localStorage.setItem("dashboardSourceTab", state.sourceTab);
-  return state.sourceTab;
+function saveSettingsDraft(patch = {}) {
+  state.settingsDraft = { ...state.settingsDraft, ...patch };
+  writeJson(SETTINGS_DRAFT_KEY, state.settingsDraft);
+  if (typeof patch.adminApiKey === "string") {
+    const key = normalize(patch.adminApiKey);
+    if (key) {
+      sessionStorage.setItem(ADMIN_API_KEY_KEY, key);
+    } else {
+      sessionStorage.removeItem(ADMIN_API_KEY_KEY);
+    }
+  }
+}
+
+function hasAdminKey() {
+  return Boolean(sessionStorage.getItem(ADMIN_API_KEY_KEY));
+}
+
+function setAdminKey(value) {
+  const key = normalize(value);
+  if (key) {
+    sessionStorage.setItem(ADMIN_API_KEY_KEY, key);
+  } else {
+    sessionStorage.removeItem(ADMIN_API_KEY_KEY);
+  }
+  saveSettingsDraft({ adminApiKey: key });
+}
+
+function authHeaders() {
+  return {
+    "Content-Type": "application/json",
+    "X-API-Key": sessionStorage.getItem(ADMIN_API_KEY_KEY) || "",
+  };
+}
+
+function normalize(value) {
+  return String(value ?? "").trim();
 }
 
 function escapeHtml(value) {
@@ -130,12 +182,12 @@ function escapeHtml(value) {
 }
 
 function formatDate(value) {
-  if (!value) return "немає даних";
+  if (!value) return "—";
   return new Date(value).toLocaleString("uk-UA", { dateStyle: "medium", timeStyle: "short" });
 }
 
 function formatShortTime(value) {
-  if (!value) return "";
+  if (!value) return "—";
   return new Date(value).toLocaleTimeString("uk-UA", { hour: "2-digit", minute: "2-digit" });
 }
 
@@ -149,14 +201,17 @@ function isSameLocalDay(value, reference = new Date()) {
   );
 }
 
-function statusMarkup(token, text) {
-  return escapeHtml(text);
-}
-
 function setStatus(selector, token, text) {
   const nodes = document.querySelectorAll(selector);
   if (!nodes.length) return;
-  const tone = token === "OK" ? "status--ok" : token === "ERROR" ? "status--error" : token === "RUN" ? "status--run" : "status--wait";
+  const tone =
+    token === "OK"
+      ? "status--ok"
+      : token === "ERROR"
+        ? "status--error"
+        : token === "RUN"
+          ? "status--run"
+          : "status--wait";
   nodes.forEach((node) => {
     node.classList.remove("status--ok", "status--error", "status--wait", "status--run");
     node.classList.add(tone);
@@ -199,7 +254,7 @@ function openDialog(selector) {
       dialog.showModal();
       return;
     } catch {
-      // Fall back to a simple visible state.
+      // Fall back below.
     }
   }
   dialog.setAttribute("open", "");
@@ -213,7 +268,7 @@ function closeDialog(selector) {
     try {
       dialog.close();
     } catch {
-      // Continue with the fallback state reset.
+      // Keep the fallback reset below.
     }
   }
   dialog.removeAttribute("open");
@@ -221,13 +276,39 @@ function closeDialog(selector) {
   dialog.hidden = true;
 }
 
-function closeAllDetails(exceptId = "") {
-  document.querySelectorAll("details.section").forEach((node) => {
-    if (node.id !== exceptId) node.open = false;
+function closeAllDialogs() {
+  document.querySelectorAll("dialog").forEach((dialog) => {
+    if (typeof dialog.close === "function" && dialog.open) {
+      try {
+        dialog.close();
+      } catch {
+        // ignore
+      }
+    }
+    dialog.removeAttribute("open");
+    dialog.classList.remove("is-open");
+    dialog.hidden = true;
   });
 }
 
-function openSection(sectionId) {
+function closeAllDetails(exceptId = "") {
+  document.querySelectorAll("details.section, details.subdetails").forEach((node) => {
+    if (node.id !== exceptId) {
+      node.open = false;
+    }
+  });
+}
+
+function resetDashboardView({ scroll = true } = {}) {
+  state.pipelineStepFocus = "";
+  closeAllDialogs();
+  closeAllDetails();
+  if (scroll) {
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  }
+}
+
+function openSection(sectionId, { scroll = true } = {}) {
   const section = document.getElementById(sectionId);
   if (!section) return;
   closeAllDetails(sectionId);
@@ -235,22 +316,11 @@ function openSection(sectionId) {
   document.querySelectorAll(".sidebar .nav-item").forEach((button) => {
     button.classList.toggle("active", button.dataset.openSection === sectionId);
   });
-  const topbarHeight = Math.max(96, document.querySelector(".topbar")?.offsetHeight || 96);
-  window.requestAnimationFrame(() => {
-    const top = section.getBoundingClientRect().top + window.scrollY - topbarHeight - 12;
-    window.scrollTo({ top: Math.max(0, top), behavior: "smooth" });
-  });
-}
-
-function hasAdminKey() {
-  return Boolean(sessionStorage.getItem("adminApiKey"));
-}
-
-function authHeaders() {
-  return {
-    "Content-Type": "application/json",
-    "X-API-Key": sessionStorage.getItem("adminApiKey") || "",
-  };
+  if (scroll) {
+    window.requestAnimationFrame(() => {
+      section.scrollIntoView({ behavior: "smooth", block: "start" });
+    });
+  }
 }
 
 function explainErrorBody(body, fallback) {
@@ -294,6 +364,25 @@ async function requestJson(path, options = {}, auth = true) {
 const api = (path, options = {}) => requestJson(path, options, true);
 const publicApi = (path, options = {}) => requestJson(path, options, false);
 
+function withButtonState(button, busyLabel) {
+  if (!button) return () => {};
+  const original = button.dataset.originalText || button.textContent;
+  button.dataset.originalText = original;
+  button.disabled = true;
+  button.textContent = busyLabel;
+  return (mode, finalLabel) => {
+    button.disabled = false;
+    button.textContent = finalLabel || original;
+    button.classList.toggle("is-success", mode === "success");
+    button.classList.toggle("is-error", mode === "error");
+    button.classList.toggle("is-warn", mode === "warn");
+    window.setTimeout(() => {
+      button.classList.remove("is-success", "is-error", "is-warn");
+      button.textContent = original;
+    }, 2500);
+  };
+}
+
 function splitKeywords(value) {
   const seen = new Set();
   return String(value || "")
@@ -308,41 +397,16 @@ function splitKeywords(value) {
     });
 }
 
-function topicOptions(includeEmpty = true) {
-  const options = [];
-  if (includeEmpty) options.push('<option value="">Без теми</option>');
-  for (const topic of state.topics) {
-    options.push(`<option value="${escapeHtml(topic.id)}">${escapeHtml(topic.name)}</option>`);
-  }
-  return options.join("");
-}
-
-function topicIdBySlug(slug) {
-  const normalized = normalize(slug).toLowerCase();
-  const aliases = {
-    ai: ["ai", "ші", "шi", "ш і", "штучн", "інтелект"],
-    business: ["business", "бізнес", "економ"],
-    career: ["career", "кар'єр", "junior"],
-    science: ["science", "наука", "дослід", "космос"],
-    technology: ["technology", "tech", "технолог", "цифров"],
-    "it-ukraine": ["it-ukraine", "it укра", "іт укра", "it", "розроб", "dev"],
-  };
-  const topic = state.topics.find((item) => {
-    const itemSlug = normalize(item.slug).toLowerCase();
-    const itemName = normalize(item.name).toLowerCase();
-    const aliasesForSlug = aliases[normalized] || [];
-    return itemSlug === normalized || itemName === normalized || aliasesForSlug.some((part) => itemSlug.includes(part) || itemName.includes(part));
-  });
-  return topic ? topic.id : "";
-}
-
 function sourceHref(value) {
   const text = normalize(value);
   if (!text) return "";
-  if (text.startsWith("http://") || text.startsWith("https://")) {
+  if (/^https?:\/\//i.test(text)) {
     return text
       .replace(/^http:\/\//i, "https://")
-      .replace(/^https:\/\/telegram\.me\//i, "https://t.me/");
+      .replace(/^https:\/\/telegram\.me\//i, "https://t.me/")
+      .replace(/^http:\/\/telegram\.me\//i, "https://t.me/")
+      .replace(/^http:\/\/t\.me\//i, "https://t.me/")
+      .replace(/^https:\/\/t\.me\//i, "https://t.me/");
   }
   if (text.startsWith("@")) return `https://t.me/${text.slice(1)}`;
   if (text.startsWith("t.me/")) return `https://${text}`;
@@ -367,347 +431,149 @@ function normalizeTelegramUrl(value) {
 function normalizeSourceUrl(type, value) {
   const text = normalize(value);
   if (type === "tg") return normalizeTelegramUrl(text);
+  if (/^https?:\/\//i.test(text)) return text.replace(/^http:\/\//i, "https://");
+  if (text.includes(".")) return `https://${text}`;
   return text;
 }
 
-function sourceModeInfo(source) {
-  const isTelegram = source.type === "tg";
-  if (source.last_error) {
-    return {
-      tone: "error",
-      token: "ERROR",
-      status: isTelegram ? "Канал недоступний" : "Джерело вимкнене",
-      nameClass: "source-name source-name--error",
-    };
-  }
-  if (source.enabled) {
-    return {
-      tone: "active",
-      token: "OK",
-      status: isTelegram ? "Канал запущено" : "Джерело активне",
-      nameClass: "source-name source-name--active",
-    };
-  }
-  return {
-    tone: "disabled",
-    token: "WAIT",
-    status: isTelegram ? "Канал недоступний" : "Джерело вимкнене",
-    nameClass: "source-name source-name--disabled",
+function sourceTypeLabel(type) {
+  return type === "tg" ? "Telegram" : "Website";
+}
+
+function sourceTone(source) {
+  if (source.last_error) return "error";
+  if (source.enabled) return "ok";
+  return "wait";
+}
+
+function sourceStatusLabel(source) {
+  if (source.enabled) return "Enabled";
+  return "Disabled";
+}
+
+function postStatusInfo(status) {
+  const map = {
+    new: { label: "New", tone: "run" },
+    generated: { label: "Generated", tone: "wait" },
+    pending_approval: { label: "Generated", tone: "wait" },
+    published: { label: "Published", tone: "ok" },
+    failed: { label: "Failed", tone: "error" },
+    rejected: { label: "Failed", tone: "error" },
   };
+  return map[status] || { label: String(status || "New"), tone: "wait" };
 }
 
 function pipelineTone(stageState) {
-  if (stageState === "running") return "stage-running";
-  if (stageState === "completed") return "stage-completed";
-  if (stageState === "failed") return "stage-failed";
-  return "stage-pending";
+  if (stageState === "running") return "is-running";
+  if (stageState === "completed") return "is-complete";
+  if (stageState === "failed") return "is-failed";
+  if (stageState === "stopped") return "is-stopped";
+  return "";
 }
 
 function translateStageLabel(value) {
   const map = {
-    "Pipeline Started": "Запуск",
-    "RSS Processing": "Збір новин",
-    "Telegram Processing": "Пошук у каналах",
-    "AI Processing": "AI-обробка",
-    "Post Generation": "Чернетки",
-    "Publishing": "Публікація",
-    "Completed": "Готово",
+    "Pipeline Started": "Start",
+    "RSS Processing": "Collect RSS",
+    "Telegram Processing": "Collect Telegram",
+    "AI Processing": "Filters",
+    "Post Generation": "AI",
+    "Publishing": "Publish",
+    "Completed": "Done",
   };
   return map[value] || value || "";
 }
 
 function translateStageState(value) {
   const map = {
-    pending: "очікує",
-    running: "у процесі",
-    completed: "завершено",
-    failed: "помилка",
+    pending: "waiting",
+    running: "running",
+    completed: "done",
+    failed: "error",
+    stopped: "stopped",
   };
   return map[value] || value || "";
 }
 
-function postStatusLabel(value) {
-  const map = {
-    new: "Нове",
-    generated: "Згенеровано",
-    pending_approval: "Очікує підтвердження",
-    published: "Опубліковано",
-    failed: "Помилка",
-    rejected: "Відхилено",
-  };
-  return map[value] || value || "";
-}
-
-function postStatusInfo(value) {
-  const map = {
-    new: {
-      label: "Нове",
-      hint: "Ще не передано в AI-редагування.",
-    },
-    generated: {
-      label: "Готово до перевірки",
-      hint: "AI уже згенерував текст, тепер матеріал можна переглянути.",
-    },
-    pending_approval: {
-      label: "Очікує перевірки редактором",
-      hint: "Матеріал чекає підтвердження перед публікацією.",
-    },
-    published: {
-      label: "Опубліковано",
-      hint: "Пост уже відправлено в Telegram або на сайт.",
-    },
-    failed: {
-      label: "Помилка обробки",
-      hint: "Спробуй переглянути деталі або запустити AI-редагування ще раз.",
-    },
-    rejected: {
-      label: "Відхилено",
-      hint: "Матеріал зупинено редактором і не піде в публікацію.",
-    },
-  };
-  return map[value] || { label: postStatusLabel(value), hint: "Статус матеріалу" };
-}
-
-function pipelineStepDetails(stageKey, meta = {}) {
-  const counts = {
-    sources: meta.sources ?? state.sources.length,
-    rss_sources: meta.rss_sources ?? state.sources.filter((source) => source.type === "site").length,
-    telegram_sources: meta.telegram_sources ?? state.sources.filter((source) => source.type === "tg").length,
-    new_items: meta.new_items ?? 0,
-    duplicates: meta.duplicates ?? 0,
-    queued_for_ai: meta.queued_for_ai ?? 0,
-    waiting_approval: meta.waiting_approval ?? 0,
-    errors: meta.errors ?? 0,
-  };
-
-  const map = {
-    "Pipeline Started": {
-      title: "Запуск конвеєра",
-      description: "Система перевіряє активні джерела і готує сценарій збору.",
-      metrics: [`Активних джерел: ${counts.sources}`, `RSS: ${counts.rss_sources}`, `Telegram: ${counts.telegram_sources}`],
-    },
-    "RSS Processing": {
-      title: "Отримання RSS новин",
-      description: "Система читає RSS-стрічки, збирає свіжі матеріали і відкидає дублікати.",
-      metrics: [`RSS джерел у сценарії: ${counts.rss_sources}`, `Нових новин: ${counts.new_items}`, `Дублікати: ${counts.duplicates}`],
-    },
-    "Telegram Processing": {
-      title: "Отримання Telegram новин",
-      description: "Система проходить Telegram-канали, підхоплює нові матеріали і не губить канал, навіть якщо є помилка доступу.",
-      metrics: [`Telegram джерел у сценарії: ${counts.telegram_sources}`, `Нових новин: ${counts.new_items}`, `Помилок: ${counts.errors}`],
-    },
-    "AI Processing": {
-      title: "Фільтрація новин",
-      description: "Правила відбору вирішують, що піде в AI-чергу, а що залишиться відкинутим як дублікат або нерелевантний матеріал.",
-      metrics: [`У черзі на AI: ${counts.queued_for_ai}`, `Очікує перевірки: ${counts.waiting_approval}`, `Відхилених помилок: ${counts.errors}`],
-    },
-    "Post Generation": {
-      title: "AI-редагування",
-      description: "AI формує короткий текст поста, який можна переглянути, підтвердити або відправити далі.",
-      metrics: [`Чернеток у роботі: ${counts.queued_for_ai}`, `Після AI: ${counts.waiting_approval}`, `Помилок: ${counts.errors}`],
-    },
-    "Publishing": {
-      title: "Публікація",
-      description: "Готові матеріали передаються в Telegram або на сайт і переходять у історію публікацій.",
-      metrics: [`Публікацій у черзі: ${counts.queued_for_ai}`, `Готово до історії: ${counts.waiting_approval}`, `Помилок: ${counts.errors}`],
-    },
-    Completed: {
-      title: "Результат конвеєра",
-      description: "Сценарій завершено. Нижче видно підсумок і наступний крок до огляду новин.",
-      metrics: [`Нових новин: ${counts.new_items}`, `Черга AI: ${counts.queued_for_ai}`, `Помилок: ${counts.errors}`],
-    },
-  };
-
-  return map[stageKey] || map["Pipeline Started"];
-}
-
-const PIPELINE_STEPS = [
-  { key: "Pipeline Started", label: "Запуск", short: "Готуємо сценарій" },
-  { key: "RSS Processing", label: "RSS", short: "Збір новин із сайтів" },
-  { key: "Telegram Processing", label: "Telegram", short: "Збір новин з каналів" },
-  { key: "AI Processing", label: "Фільтри", short: "Відбір і перевірка" },
-  { key: "Post Generation", label: "AI", short: "Генерація постів" },
-  { key: "Publishing", label: "Публікація", short: "Відправка в Telegram або сайт" },
-  { key: "Completed", label: "Результат", short: "Підсумок і наступний крок" },
-];
-
-function withButtonState(button, busyLabel) {
-  if (!button) return () => {};
-  const original = button.dataset.originalText || button.textContent;
-  button.dataset.originalText = original;
-  button.disabled = true;
-  button.textContent = busyLabel;
-  return (mode, finalLabel) => {
-    button.disabled = false;
-    button.textContent = finalLabel || original;
-    button.classList.toggle("is-success", mode === "success");
-    button.classList.toggle("is-error", mode === "error");
-    button.classList.toggle("is-warn", mode === "warn");
-    window.setTimeout(() => {
-      button.classList.remove("is-success", "is-error", "is-warn");
-      button.textContent = original;
-    }, 2500);
-  };
-}
-
-function selectedSourceType() {
-  return $("#sourceType")?.value === "tg" || state.sourceTab === "tg" ? "tg" : "site";
-}
-
-function renderAdminState() {
-  if (!hasAdminKey()) {
-    setStatus("#settingsAdminKeyStatus", "WAIT", "Код доступу: не перевірено");
-    return;
-  }
-  setStatus("#settingsAdminKeyStatus", "OK", "Код доступу: активний");
-}
-
-function renderOpenAIStatus() {
-  const check = state.openaiCheckResult;
-  const temporaryIssue = check ? ["rate_limited", "timeout", "unavailable"].includes(check.status) : false;
-  const configured = check ? Boolean(check.ok) : Boolean(state.publicStatus?.openai_configured);
-  const label = check
-    ? check.ok
-      ? "ШІ підключено"
-      : temporaryIssue
-        ? "ШІ тимчасово недоступний"
-        : "ШІ не підтверджено"
-    : configured
-      ? "ШІ підключено"
-      : "Потрібен ключ OpenAI";
-  const tone = check ? (check.ok ? "OK" : temporaryIssue ? "WAIT" : "ERROR") : configured ? "OK" : "WAIT";
-  setStatus("#openaiStatus", tone, label);
-}
-
-function renderTelegramStatus() {
-  const status = state.settings || state.publicStatus;
-  if (!status) return;
-
-  const telegramCheck = state.telegramCheckResult;
-  const botOnline = telegramCheck ? Boolean(telegramCheck.bot_ok) : Boolean(status.telegram_bot_configured);
-  const channelAvailable = telegramCheck ? Boolean(telegramCheck.channel_ok) : Boolean(status.telegram_target_channel);
-  const publishingAvailable = telegramCheck ? Boolean(telegramCheck.ok) : Boolean(status.telegram_connected);
-  const lastDelivery = status.last_successful_delivery_at ? formatDate(status.last_successful_delivery_at) : "немає";
-
-  setStatus(
-    "#telegramConnectionStatus, #settingsTelegramConnectionStatus",
-    publishingAvailable ? "OK" : "WAIT",
-    publishingAvailable ? "Telegram підключено та готовий до публікації" : "Telegram: сценарій підключення"
+function pipelineContext() {
+  const status = state.pipelineStatus || {};
+  const meta = status.task_result && Object.keys(status.task_result).length ? status.task_result : status.task_meta || {};
+  const terminal = ["SUCCESS", "FAILURE", "REVOKED"].includes(status.task_state);
+  const stopped = Boolean(
+    meta.stopped ||
+      status.task_state === "REVOKED" ||
+      status.task_result?.stopped ||
+      status.task_meta?.stopped ||
+      (state.uiPaused && state.pipelineTaskId && !terminal)
   );
+  const running =
+    !stopped && (Boolean(meta.pipeline_running) || ["PENDING", "STARTED", "PROGRESS", "RETRY", "queued", "running"].includes(status.task_state));
+  const failed = status.task_state === "FAILURE";
+  return { status, meta, stopped, running, failed };
+}
 
-  let reason = "Telegram підключено та готовий до публікації.";
-  if (telegramCheck?.message) {
-    reason = telegramCheck.message;
-  } else if (!botOnline && !channelAvailable) {
-    reason = "Відкрий Налаштування → Telegram і заповни API ID, API HASH, Session та Channel Username.";
-  } else if (!botOnline) {
-    reason = "Боту ще не вистачає доступу. Перевір API ID, API HASH і Session у блоці Telegram.";
-  } else if (!channelAvailable) {
-    reason = "Канал ще не вказано. Додай Channel Username або відкрий сценарій підключення.";
-  } else if (!publishingAvailable) {
-    reason = "Telegram зараз недоступний. Перевір конфігурацію або спробуй ще раз.";
-  }
-  setText("#telegramConnectionReason, #settingsTelegramConnectionReason", reason);
-  setStatus(
-    "#deliveryStatus, #settingsDeliveryStatus",
-    status.last_successful_delivery_at ? "OK" : "WAIT",
-    status.last_successful_delivery_at ? `Остання успішна доставка: ${lastDelivery}` : "Остання успішна доставка: ще не було"
-  );
+function isPipelineTerminal(status) {
+  return ["SUCCESS", "FAILURE", "REVOKED"].includes(status?.task_state);
+}
 
-  const href = publishingAvailable ? sourceHref(status.telegram_target_channel) : "";
-  const node = $("#telegramChannelLinkTop");
-  if (node) {
-    node.hidden = false;
-    node.classList.remove("is-success", "is-error", "is-warn");
-    if (href) {
-      node.href = href;
-      node.removeAttribute("data-open-section");
-      node.removeAttribute("aria-disabled");
-      node.textContent = "📢 Відкрити Telegram-канал";
-      node.classList.add("is-success");
-      node.title = "Відкрити підключений канал";
+function renderPlaceholder(bodySelector, message, colspan) {
+  const body = $(bodySelector);
+  if (!body) return;
+  body.innerHTML = `<tr><td colspan="${colspan}" class="muted">${escapeHtml(message)}</td></tr>`;
+}
+
+function renderPublicState() {
+  const pub = state.publicStatus || {};
+  const connected = Boolean(pub.telegram_connected);
+  const target = normalize(pub.telegram_target_channel);
+
+  const link = $("#telegramChannelLinkTop");
+  if (link) {
+    link.hidden = false;
+    link.classList.remove("is-success", "is-error", "is-warn");
+    if (connected && target) {
+      link.href = sourceHref(target);
+      link.removeAttribute("data-open-section");
+      link.textContent = "📢 Відкрити Telegram-канал";
+      link.classList.add("is-success");
+      link.title = "Open the connected Telegram channel";
     } else {
-      node.href = "#settingsSection";
-      node.setAttribute("data-open-section", "settingsSection");
-      node.removeAttribute("aria-disabled");
-      node.textContent = "📢 Підключити Telegram";
-      node.classList.add("is-warn");
-      node.title = "Відкрити сценарій підключення Telegram";
+      link.href = "#settingsSection";
+      link.setAttribute("data-open-section", "settingsSection");
+      link.textContent = "📢 Telegram connection scenario";
+      link.classList.add("is-warn");
+      link.title = "Open Settings to finish Telegram connection";
     }
   }
 
-  setText(
-    "#telegramTarget, #settingsTelegramTarget",
-    status.telegram_target_channel ? `Канал: ${status.telegram_target_channel}` : "Сценарій підключення відкрито"
-  );
-}
-
-function renderTopicSelects() {
-  const html = topicOptions(true);
-  for (const selector of ["#sourceTopic", "#newsTopic"]) {
-    const node = $(selector);
-    if (node) node.innerHTML = html;
-  }
-}
-
-function keywordsForTopic(topicId) {
-  return state.keywords.filter((item) => item.topic_id === topicId).map((item) => item.word);
-}
-
-function renderTopics() {
-  const list = $("#topicsList");
-  if (!list) return;
-
-  list.innerHTML =
-    state.topics
-      .map((topic) => {
-        const words = keywordsForTopic(topic.id);
-        return `
-          <div class="item topic-card ${topic.enabled ? "is-active" : "is-inactive"}">
-            <div class="topic-card-head">
-              <div>
-                <div class="item-title">${escapeHtml(topic.name)}</div>
-                <div class="muted">${escapeHtml(topic.description || "Без опису")}</div>
-              </div>
-              <div class="topic-card-state ${topic.enabled ? "is-active" : "is-inactive"}">${topic.enabled ? "Тему активовано" : "Тему не активовано"}</div>
-            </div>
-            <div class="topic-keywords">
-              ${words.length ? words.map((word) => `<span class="badge">${escapeHtml(word)}</span>`).join("") : '<span class="muted">Ключові слова не додано</span>'}
-            </div>
-            <div class="item-actions">
-              <button class="danger" data-delete-topic="${escapeHtml(topic.id)}">Видалити</button>
-            </div>
-          </div>`;
-      })
-      .join("") || '<div class="item muted">Теми ще не додано.</div>';
-}
-
-function renderSourceFormState() {
-  const type = selectedSourceType();
-  const submit = $("#sourceSubmitBtn");
-  const hint = $("#sourceUrlHint");
-  const modal = $("#sourceModal");
-
-  if (submit) submit.textContent = type === "tg" ? "Додати Telegram-канал" : "Додати RSS джерело";
-  if (modal) modal.dataset.activeSourceType = type;
-  if (hint) {
-    hint.textContent =
-      type === "tg"
-        ? "Для Telegram вкажи @назва_каналу або посилання на канал."
-        : "Для RSS вкажи повний URL стрічки.";
+  if (!hasAdminKey()) {
+    setText(
+      "#panelStatusNote",
+      connected ? "Telegram connected. Add the admin access code in Settings to unlock private data." : "Add the admin access code in Settings to unlock private data and Telegram setup."
+    );
+  } else if (connected) {
+    setText("#panelStatusNote", `Telegram connected to ${target || "the configured channel"}. Private blocks are unlocked.`);
+  } else {
+    setText("#panelStatusNote", "Private blocks are unlocked. Telegram is shown as a connection scenario until the channel is confirmed.");
   }
 }
 
 function mergedSourceSuggestions(type) {
+  const query = normalize(state.sourceTemplateQuery).toLowerCase();
   const base = state.sourceSuggestions.filter((item) => item.type === type);
-  const custom = state.customSourceSuggestions?.[type] || [];
   const fallback = SOURCE_EXAMPLE_FALLBACKS[type] || [];
   const seen = new Set();
   const merged = [];
 
-  for (const item of [...custom, ...base, ...fallback]) {
-    const key = `${normalize(item.name).toLowerCase()}|${normalize(item.url).toLowerCase()}`;
+  for (const item of [...base, ...fallback]) {
+    const name = normalize(item.name).toLowerCase();
+    const url = normalize(item.url).toLowerCase();
+    const key = `${name}|${url}`;
     if (seen.has(key)) continue;
+    if (query) {
+      const haystack = `${name} ${url} ${normalize(item.description).toLowerCase()}`;
+      if (!haystack.includes(query)) continue;
+    }
     seen.add(key);
     merged.push(item);
   }
@@ -716,408 +582,607 @@ function mergedSourceSuggestions(type) {
 }
 
 function renderSuggestionCard(item, index, type) {
+  const typeLabel = sourceTypeLabel(type);
   return `
-    <details class="item suggestion-card">
-      <summary>
-        <div class="source-summary-main">
-          <div class="item-title">${escapeHtml(item.name)}</div>
-          <div class="muted">${escapeHtml(item.url)}</div>
+    <article class="template-card">
+      <div class="template-head">
+        <div>
+          <div class="row-title">${escapeHtml(item.name)}</div>
+          <div class="template-url">${escapeHtml(item.url)}</div>
         </div>
-        <span class="pill pill--wait">Шаблон</span>
-      </summary>
-      <div class="suggestion-body">
-        <div class="muted">${escapeHtml(item.description)}</div>
-        <div class="item-actions item-actions--center">
-          <button type="button" class="secondary suggestion-apply-btn" data-use-source-suggestion="${index}" data-suggestion-type="${type}">
-            ⬇ Застосувати шаблон
-          </button>
-        </div>
+        <span class="badge badge--ok">${escapeHtml(typeLabel)}</span>
       </div>
-    </details>`;
+      <div class="template-desc">${escapeHtml(item.description || "")}</div>
+      <div class="template-actions">
+        <button type="button" class="secondary" data-use-source-suggestion="${index}" data-suggestion-type="${type}">Use template</button>
+      </div>
+    </article>`;
 }
 
-function renderSourceCard(source) {
-  const info = sourceModeInfo(source);
-  const topic = state.topics.find((item) => item.id === source.topic_id);
-  const href = sourceHref(source.url);
-  const displayUrl = source.type === "tg" ? href : source.url;
-  return `
-    <details class="item source-card source-card--${info.tone}">
-      <summary>
-        <div class="source-summary-main">
-          <div class="source-summary-head">
-            <div class="${info.nameClass}">${escapeHtml(source.name)}</div>
-            <span class="pill source-type-pill">${escapeHtml(source.type === "tg" ? "Telegram" : "RSS")}</span>
-          </div>
-          <div class="source-url ${info.nameClass}">${escapeHtml(displayUrl)}</div>
-        </div>
-        <div class="status slim ${info.tone === "active" ? "status--ok" : info.tone === "error" ? "status--error" : "status--wait"}">${statusMarkup(info.token, info.status)}</div>
-      </summary>
-      <div class="source-card-body">
-        <div class="muted">Тема: ${escapeHtml(topic ? topic.name : "Без теми")}</div>
-        ${source.last_error ? `<div class="error-box">🔴 Джерело недоступне<br />Причина: ${escapeHtml(source.last_error)}</div>` : ""}
-        <div class="item-actions">
-          ${href ? `<a class="link-button secondary" href="${escapeHtml(href)}" target="_blank" rel="noreferrer">Відкрити</a>` : ""}
-          <button class="secondary" data-edit-source="${escapeHtml(source.id)}">Редагувати</button>
-          <button class="secondary" data-save-source-example="${escapeHtml(source.id)}">Додати до прикладів</button>
-          <button class="danger" data-delete-source="${escapeHtml(source.id)}">Видалити</button>
-        </div>
-      </div>
-    </details>`;
-}
-
-function renderSuggestions() {
+function renderSourceTemplates() {
+  const search = $("#sourceTemplateSearch");
+  if (search && search.value !== state.sourceTemplateQuery) {
+    search.value = state.sourceTemplateQuery;
+  }
   const renderGroup = (selectors, type, emptyText) => {
     const items = mergedSourceSuggestions(type);
-    const html = items.map((item, index) => renderSuggestionCard(item, index, type)).join("") || `<div class="item muted">${escapeHtml(emptyText)}</div>`;
-    for (const selector of selectors) {
+    const html = items.map((item, index) => renderSuggestionCard(item, index, type)).join("") || `<div class="empty-state">${escapeHtml(emptyText)}</div>`;
+    selectors.forEach((selector) => {
       const node = $(selector);
       if (node) node.innerHTML = html;
-    }
+    });
   };
-  renderGroup(["#rssSuggestionsList", "#rssVisibleSuggestionsList"], "site", "Прикладів RSS ще немає.");
-  renderGroup(["#telegramSuggestionsList", "#telegramVisibleSuggestionsList"], "tg", "Прикладів Telegram ще немає.");
+
+  renderGroup(["#rssVisibleSuggestionsList"], "site", "No RSS templates match your search.");
+  renderGroup(["#telegramVisibleSuggestionsList"], "tg", "No Telegram templates match your search.");
 }
 
-function renderSources() {
-  const rssList = $("#rssSourcesList");
-  const tgList = $("#telegramSourcesList");
-  const modalList = $("#sourceModalSourcesList");
-  if (!rssList || !tgList) return;
-
-  const rss = state.sources.filter((source) => source.type === "site");
-  const tg = state.sources.filter((source) => source.type === "tg");
-  const total = rss.length + tg.length;
-  rssList.innerHTML = rss.map(renderSourceCard).join("") || '<div class="item muted">RSS джерел ще немає. Натисни «Додати джерело» вище.</div>';
-  tgList.innerHTML = tg.map(renderSourceCard).join("") || '<div class="item muted">Telegram-джерел ще немає. Натисни «Додати джерело» вище.</div>';
-  if (modalList) {
-    modalList.innerHTML = state.sources.map(renderSourceCard).join("") || '<div class="item muted">Джерел ще немає. Додай перше джерело вище.</div>';
+function renderSourceModalState() {
+  const form = $("#sourceForm");
+  if (!form) return;
+  const mode = form.dataset.mode || "create";
+  const type = $("#sourceType")?.value === "tg" ? "tg" : "site";
+  const title = $("#sourceModalTitle");
+  const submit = $("#sourceSubmitBtn");
+  const hint = $("#sourceUrlHint");
+  if (title) title.textContent = mode === "edit" ? "Edit Source" : "Add Source";
+  if (submit) submit.textContent = mode === "edit" ? "Save" : "Save";
+  if (hint) {
+    hint.textContent =
+      type === "tg"
+        ? "For Telegram, use @username or a t.me link. The URL will be normalized to HTTPS."
+        : "For RSS, use the full website feed URL.";
   }
-  setStatus("#sourcesStatus", total ? "OK" : "WAIT", total ? "Джерела готові до запуску" : "Джерела ще не додано");
-  setStatus("#sourcesCount", total ? "OK" : "WAIT", total ? `Джерел додано: ${total}` : "Джерел додано: 0");
-  setStatus("#sourceModalRssCount", rss.length ? "OK" : "WAIT", `RSS: ${rss.length}`);
-  setStatus("#sourceModalTgCount", tg.length ? "OK" : "WAIT", `Telegram: ${tg.length}`);
-  setStatus("#sourceModalTotalCount", total ? "OK" : "WAIT", `Всього: ${total}`);
-  const rssHeading = rssList.closest(".source-column")?.querySelector("h3");
-  const tgHeading = tgList.closest(".source-column")?.querySelector("h3");
-  if (rssHeading) rssHeading.innerHTML = `RSS джерела <span class="pill">${rss.length}</span>`;
-  if (tgHeading) tgHeading.innerHTML = `Telegram джерела <span class="pill">${tg.length}</span>`;
+  const enabled = $("#sourceEnabled");
+  if (enabled && !enabled.checked) {
+    setStatus("#sourceSaveStatus", "WAIT", "Source is currently disabled");
+  }
 }
 
-function renderSavedSearches() {
-  const box = $("#savedSearches");
-  if (!box) return;
-  box.innerHTML =
-    state.savedSearches
-      .map(
-        (search, index) => `
-          <button class="secondary" data-apply-search="${index}" type="button">${escapeHtml(search.label)}</button>`
-      )
-      .join("") || "";
-}
+function openSourceModal({ type = "site", source = null } = {}) {
+  const form = $("#sourceForm");
+  if (!form) return;
+  form.dataset.mode = source ? "edit" : "create";
+  form.dataset.sourceId = source?.id || "";
+  form.reset();
 
-function renderNews() {
-  const list = $("#newsList");
-  if (!list) return Promise.resolve();
+  const typeField = $("#sourceType");
+  const nameField = $("#sourceName");
+  const urlField = $("#sourceUrl");
+  const enabledField = $("#sourceEnabled");
 
-  const query = normalize($("#newsSearch")?.value);
-  const topicId = normalize($("#newsTopic")?.value);
-  const params = new URLSearchParams({ limit: "50" });
-  if (query) params.set("search", query);
-  if (topicId) params.set("topic_id", topicId);
+  if (typeField) typeField.value = source?.type || type || "site";
+  if (nameField) nameField.value = source?.name || "";
+  if (urlField) urlField.value = source?.url || "";
+  if (enabledField) enabledField.checked = source ? Boolean(source.enabled) : true;
 
-  return api(`/api/news/?${params.toString()}`)
-    .then((items) => {
-      state.news = items;
-      list.innerHTML =
-        items
-          .map((item) => {
-            const title = item.url
-              ? `<a class="news-title" href="${escapeHtml(item.url)}" target="_blank" rel="noreferrer">${escapeHtml(item.title)}</a>`
-              : `<div class="news-title">${escapeHtml(item.title)}</div>`;
-            return `
-              <article class="card news-card">
-                ${title}
-                <div class="muted">${escapeHtml(item.source)} · ${escapeHtml(formatDate(item.published_at))}</div>
-                <div class="status slim ${item.raw_text ? "status--ok" : "status--wait"}">${item.raw_text ? "Текст новини готовий" : "Текст новини не зчитано"}</div>
-                <p>${escapeHtml(item.summary)}</p>
-                <div class="item-actions">
-                  <button class="secondary" data-improve-ai="${escapeHtml(item.id)}">Редагувати через AI</button>
-                  <button class="secondary" data-publish-site="${escapeHtml(item.id)}">Опублікувати на сайті</button>
-                  <button class="secondary" data-publish-telegram="${escapeHtml(item.id)}">Опублікувати в Telegram</button>
-                </div>
-              </article>`;
-          })
-          .join("") || '<div class="item muted">Новини не знайдено. Перевірте джерела або запустіть збір новин.</div>';
-    })
-    .catch((error) => {
-      list.innerHTML = `<div class="item muted">${escapeHtml(error.message)}</div>`;
-    });
-}
-
-function renderPosts() {
-  const list = $("#postsList");
-  const publishedList = $("#publishedList");
-  if (!list || !publishedList) return Promise.resolve();
-
-  return api("/api/posts/?limit=50")
-    .then((items) => {
-      state.posts = items;
-      const counts = {
-        total: items.length,
-        generated: items.filter((post) => post.status === "generated").length,
-        pending: items.filter((post) => post.status === "pending_approval").length,
-        published: items.filter((post) => post.status === "published").length,
-        failed: items.filter((post) => post.status === "failed").length,
-        rejected: items.filter((post) => post.status === "rejected").length,
-      };
-
-      setHtml(
-        "#postsSummary",
-        [
-          `<div class="status status--run">Усього: ${counts.total}</div>`,
-          `<div class="status status--wait">Очікує перевірки: ${counts.pending + counts.generated}</div>`,
-          `<div class="status status--ok">Опубліковано: ${counts.published}</div>`,
-          `<div class="status status--error">Помилки: ${counts.failed}</div>`,
-        ].join("")
-      );
-
-      const cardMarkup =
-        items
-          .map((post) => {
-            const headline = post.news?.title || `Матеріал ${post.id.slice(0, 8)}`;
-            const statusInfo = postStatusInfo(post.status);
-            const previewText = normalize(post.generated_text || post.news?.summary || "");
-            const excerpt = previewText ? `${previewText.slice(0, 180)}${previewText.length > 180 ? "..." : ""}` : "Поки що немає тексту для перегляду.";
-            const detailsId = `postDetails-${post.id}`;
-            const publishedLabel = post.status === "published" ? "Опубліковано" : "Підтвердити та опублікувати";
-            const publishedDisabled = post.status === "published" ? "disabled" : "";
-            const sourceLabel = escapeHtml(post.news?.source || "—");
-            const articleStatusClass = post.status === "published" ? "status--ok" : post.status === "failed" ? "status--error" : "status--wait";
-            return `
-              <article class="post-card post-card--${escapeHtml(post.status)}">
-                <div class="post-card__top">
-                  <div>
-                    <div class="item-title">${escapeHtml(headline)}</div>
-                    <div class="post-card__meta">${sourceLabel} · ${escapeHtml(formatDate(post.published_at || post.updated_at))}</div>
-                  </div>
-                  <div class="status slim ${articleStatusClass}">${escapeHtml(statusInfo.label)}</div>
-                </div>
-                <p class="post-card__excerpt">${escapeHtml(excerpt)}</p>
-                <div class="post-card__status-hint">${escapeHtml(statusInfo.hint)}</div>
-                <div id="${escapeHtml(detailsId)}" class="post-card__details" hidden>
-                  <textarea readonly data-post-text="${escapeHtml(post.id)}">${escapeHtml(post.generated_text || post.news?.summary || "")}</textarea>
-                </div>
-                <div class="post-card__actions">
-                  <button class="secondary" data-improve-ai="${escapeHtml(post.news_id)}">Редагувати через AI</button>
-                  <button class="secondary post-card__toggle" data-toggle-post="${escapeHtml(post.id)}">Переглянути</button>
-                  <button class="secondary" data-confirm-post="${escapeHtml(post.id)}" ${publishedDisabled}>${escapeHtml(publishedLabel)}</button>
-                  <button class="danger" data-delete-post="${escapeHtml(post.id)}">Видалити</button>
-                </div>
-              </article>`;
-          })
-          .join("") || '<div class="item muted">Постів ще немає. Запусти конвеєр або згенеруй матеріали з новин.</div>';
-
-      list.innerHTML = cardMarkup;
-
-      publishedList.innerHTML =
-        items
-          .filter((post) => post.status === "published")
-          .map((post) => {
-            const headline = post.news?.title || `Матеріал ${post.id.slice(0, 8)}`;
-            return `
-              <article class="post-card post-card--published">
-                <div class="item-title">${escapeHtml(headline)}</div>
-                <div class="post-card__meta">${escapeHtml(post.news?.source || "—")} · ${escapeHtml(formatDate(post.published_at || post.updated_at))}</div>
-                <div class="status status--ok">Опубліковано</div>
-                <button class="secondary post-card__toggle" data-toggle-post="${escapeHtml(post.id)}">Переглянути</button>
-                <div id="publishedPostDetails-${escapeHtml(post.id)}" class="post-card__details" hidden>
-                  <textarea readonly data-post-text="${escapeHtml(post.id)}">${escapeHtml(post.generated_text || post.news?.summary || "")}</textarea>
-                </div>
-              </article>`;
-          })
-          .join("") || '<div class="item muted">Опублікованих матеріалів ще немає.</div>';
-    })
-    .catch((error) => {
-      list.innerHTML = `<div class="item muted">${escapeHtml(error.message)}</div>`;
-      publishedList.innerHTML = `<div class="item muted">${escapeHtml(error.message)}</div>`;
-    });
-}
-
-function renderPipeline() {
-  const status = state.pipelineStatus || {};
-  const meta = status.task_result && Object.keys(status.task_result).length ? status.task_result : status.task_meta || {};
-  const stages = meta.stages || {};
-  const running =
-    Boolean(meta.pipeline_running) || ["PENDING", "STARTED", "PROGRESS", "RETRY", "queued", "running"].includes(status.task_state);
-
-  const rssReady = state.sources.some((source) => source.type === "site" && source.enabled && !source.last_error);
-  const telegramReady = state.sources.some((source) => source.type === "tg" && source.enabled && !source.last_error);
-  const aiCheck = state.openaiCheckResult;
-  const aiTemporary = Boolean(aiCheck && !aiCheck.ok && ["rate_limited", "timeout", "unavailable"].includes(aiCheck.status));
-  const aiReady = Boolean(aiCheck ? aiCheck.ok : state.publicStatus?.openai_configured);
-  const failed = status.task_state === "FAILURE";
-  const sourceCount = state.sources.length;
-  const rssCount = state.sources.filter((source) => source.type === "site").length;
-  const tgCount = state.sources.filter((source) => source.type === "tg").length;
-  const currentStageKey = meta.stage_key || "Pipeline Started";
-  const focusKey = PIPELINE_STEPS.some((item) => item.key === state.pipelineStepFocus) ? state.pipelineStepFocus : currentStageKey;
-  const focusDetails = pipelineStepDetails(focusKey, meta);
-  const readyText =
-    sourceCount === 0
-      ? "Додай щонайменше 1 джерело"
-      : sourceCount < 3
-        ? "Сценарій готовий, але рекомендовано 3–10 джерел"
-        : sourceCount > 20
-          ? "Занадто багато джерел. Максимум 20"
-          : "Сценарій конвеєра готовий";
-  const resultSummary = (() => {
-    if (status.task_state === "SUCCESS") {
-      return `Готово: джерел ${meta.sources ?? sourceCount}, RSS ${meta.rss_sources ?? rssCount}, Telegram ${meta.telegram_sources ?? tgCount}, новин ${meta.new_items ?? 0}, AI-черга ${meta.queued_for_ai ?? 0}, помилок ${meta.errors ?? 0}.`;
-    }
-    if (status.task_state === "FAILURE") {
-      return explainErrorBody(status.task_result || status.task_meta, "Конвеєр завершився з помилкою");
-    }
-    if (running) {
-      return `Зараз: ${translateStageLabel(meta.stage_label || meta.stage_key || "Запуск")}. Джерел ${meta.sources ?? sourceCount}, RSS ${meta.rss_sources ?? rssCount}, Telegram ${meta.telegram_sources ?? tgCount}, новин ${meta.new_items ?? 0}, AI-черга ${meta.queued_for_ai ?? 0}.`;
-    }
-    return `Сценарій готовий: RSS ${rssCount}, Telegram ${tgCount}, AI ${aiReady ? "готовий" : aiTemporary ? "тимчасово недоступний" : aiCheck ? "не підтверджено" : "потрібен ключ"}. Натисни «Запустити конвеєр», щоб побачити кроки в реальному часі.`;
-  })();
-
-  setStatus(
-    "#pipelineReadyStatus",
-    running ? "RUN" : failed ? "ERROR" : sourceCount ? (sourceCount > 20 ? "WAIT" : "OK") : "WAIT",
-    running ? "Конвеєр працює" : failed ? "Помилка конвеєра" : readyText
-  );
-  setStatus(
-    "#workflowStatus",
-    running ? "RUN" : failed ? "ERROR" : "WAIT",
-    running ? translateStageLabel(meta.stage_label || meta.stage_key || "Поточний крок") || "Поточний крок" : failed ? "Помилка конвеєра" : "Натисни «Запустити конвеєр»"
-  );
-
-  const hasRssSources = state.sources.some((source) => source.type === "site");
-  const hasTelegramSources = state.sources.some((source) => source.type === "tg");
-  setStatus(
-    "#rssReadyStatus",
-    rssReady ? "OK" : hasRssSources ? "ERROR" : "WAIT",
-    rssReady ? "RSS готово" : hasRssSources ? "RSS має помилки" : "RSS ще не додано"
-  );
-  setStatus(
-    "#telegramReadyStatus",
-    telegramReady ? "OK" : hasTelegramSources ? "ERROR" : "WAIT",
-    telegramReady ? "Telegram готово" : hasTelegramSources ? "Telegram має помилки" : "Telegram: сценарій підключення"
-  );
-  setStatus(
-    "#aiReadyStatus",
-    aiReady ? "OK" : aiTemporary ? "WAIT" : aiCheck ? "ERROR" : "WAIT",
-    aiReady ? "ШІ готовий" : aiTemporary ? "ШІ тимчасово недоступний" : aiCheck ? "ШІ не підтверджено" : "Потрібен ключ OpenAI"
-  );
-
-  const stageHtml = PIPELINE_STEPS
-    .map((item) => {
-      const stageState = stages[item.key] || "pending";
-      const active = focusKey === item.key || (item.key === "Completed" && status.task_state === "SUCCESS");
-      return `
-        <button type="button" class="stage-card ${pipelineTone(stageState)} ${active ? "is-active" : ""}" data-pipeline-step="${escapeHtml(item.key)}">
-          <div class="stage-name">${escapeHtml(item.label)}</div>
-          <div class="stage-state">${escapeHtml(translateStageState(stageState))}</div>
-          <div class="muted">${escapeHtml(item.short)}</div>
-        </button>`;
-    })
-    .join("");
-  setHtml("#pipelineStageList, #pipelineModalStageList", stageHtml);
-  const detailHtml = `
-    <div class="item-title">${escapeHtml(focusDetails.title)}</div>
-    <p class="muted">${escapeHtml(focusDetails.description)}</p>
-    <div class="post-summary-grid">
-      ${focusDetails.metrics.map((item) => `<div class="status slim">${escapeHtml(item)}</div>`).join("")}
-    </div>`;
-  setHtml("#pipelineStageDetails", detailHtml);
-  setText("#pipelineResult, #pipelineModalResult", resultSummary);
-
-  const success = status.task_state === "SUCCESS";
-  const overviewButtons = [
-    $("#pipelineGoToOverviewBtn"),
-    $("#pipelineModalGoToOverviewBtn"),
-  ];
-  overviewButtons.forEach((button) => {
-    if (!(button instanceof HTMLButtonElement)) return;
-    button.hidden = !success;
-    button.textContent = success ? "📊 Перейти до огляду новин" : "Огляд відкриється після завершення";
+  renderSourceModalState();
+  openDialog("#sourceModal");
+  window.requestAnimationFrame(() => {
+    nameField?.focus();
   });
 }
 
-function renderOverview() {
-  const today = new Date();
-  const activeSources = state.sources.filter((item) => item.enabled && !item.last_error).length;
-  const todayNews = state.news.filter((item) => isSameLocalDay(item.published_at, today)).length;
-  const generatedPosts = state.posts.filter((item) => ["generated", "pending_approval", "published"].includes(item.status)).length;
-  const publishedPosts = state.posts.filter((item) => item.status === "published").length;
-  const errors =
-    state.sources.filter((item) => item.last_error).length +
-    state.posts.filter((item) => item.status === "failed" || item.error).length +
-    (state.errorLogs?.length || 0);
-
-  setText("#overviewSourcesCount", String(activeSources));
-  setText("#overviewNewsCount", String(todayNews));
-  setText("#overviewGeneratedCount", String(generatedPosts));
-  setText("#overviewPublishedCount", String(publishedPosts));
-  setText("#overviewErrorsCount", String(errors));
-
-  const openaiReady = Boolean(state.openaiCheckResult ? state.openaiCheckResult.ok : state.publicStatus?.openai_configured);
-  const openaiTemporary = Boolean(state.openaiCheckResult && !state.openaiCheckResult.ok && ["rate_limited", "timeout", "unavailable"].includes(state.openaiCheckResult.status));
-  const telegramReady = Boolean(state.publicStatus?.telegram_connected || state.settings?.telegram_connected);
-  const pipelineRunning = Boolean(
-    state.pipelineStatus?.task_meta?.pipeline_running ||
-      ["PENDING", "STARTED", "PROGRESS", "RETRY", "queued", "running"].includes(state.pipelineStatus?.task_state)
-  );
-
-  setStatus(
-    "#overviewOpenAIStatus",
-    openaiReady ? "OK" : openaiTemporary ? "WAIT" : "ERROR",
-    openaiReady ? "ШІ підключено" : openaiTemporary ? "ШІ тимчасово недоступний" : "ШІ не підключено"
-  );
-  setStatus(
-    "#overviewTelegramStatus",
-    telegramReady ? "OK" : "WAIT",
-    telegramReady ? "Telegram підключено" : "Telegram: сценарій підключення"
-  );
-  setStatus("#overviewPipelineStatus", pipelineRunning ? "RUN" : "WAIT", pipelineRunning ? "Конвеєр працює" : "Конвеєр зупинено");
-  setText("#overviewLastSync", `Оновлено: ${new Date().toLocaleTimeString("uk-UA", { hour: "2-digit", minute: "2-digit" })}`);
+function fillSourceFormFromSuggestion(suggestion, type) {
+  const form = $("#sourceForm");
+  if (!form || !suggestion) return;
+  form.dataset.mode = "create";
+  form.dataset.sourceId = "";
+  const typeField = $("#sourceType");
+  const nameField = $("#sourceName");
+  const urlField = $("#sourceUrl");
+  const enabledField = $("#sourceEnabled");
+  if (typeField) typeField.value = type;
+  if (nameField) nameField.value = suggestion.name;
+  if (urlField) urlField.value = normalizeSourceUrl(type, suggestion.url);
+  if (enabledField) enabledField.checked = true;
+  renderSourceModalState();
+  openDialog("#sourceModal");
+  window.requestAnimationFrame(() => {
+    nameField?.focus();
+  });
 }
 
-function renderLogs() {
-  const list = $("#logsList");
-  if (!list) return;
+function renderSourceRow(source) {
+  const infoTone = sourceTone(source);
+  const statusBadge = source.enabled ? "Enabled" : "Disabled";
+  const note = source.last_error ? `Last error: ${source.last_error}` : source.enabled ? "Ready for launch" : "Turned off";
+  const href = sourceHref(source.url);
+  return `
+    <tr data-source-id="${escapeHtml(source.id)}">
+      <td data-label="Name">
+        <div class="row-title">${escapeHtml(source.name)}</div>
+        <div class="row-subtle">${escapeHtml(source.url)}</div>
+      </td>
+      <td data-label="Type">
+        <span class="badge ${infoTone === "error" ? "badge--error" : "badge--ok"}">${escapeHtml(sourceTypeLabel(source.type))}</span>
+      </td>
+      <td data-label="Status">
+        <div class="source-status">
+          <span class="badge ${source.enabled ? "badge--ok" : "badge--wait"}">${escapeHtml(statusBadge)}</span>
+          <div class="row-subtle">${escapeHtml(note)}</div>
+          ${href ? `<a class="row-subtle" href="${escapeHtml(href)}" target="_blank" rel="noreferrer">Open source</a>` : ""}
+        </div>
+      </td>
+      <td data-label="Actions">
+        <div class="row-actions">
+          <label class="switch" title="Enable or disable source">
+            <input type="checkbox" data-toggle-source="${escapeHtml(source.id)}" ${source.enabled ? "checked" : ""} />
+            <span class="switch-track"><span class="switch-thumb"></span></span>
+          </label>
+          <button class="secondary" type="button" data-edit-source="${escapeHtml(source.id)}">Edit</button>
+          <button class="danger" type="button" data-delete-source="${escapeHtml(source.id)}">Delete</button>
+        </div>
+      </td>
+    </tr>`;
+}
 
-  const todayNews = state.news.filter((item) => isSameLocalDay(item.published_at)).length;
-  const generatedPosts = state.posts.filter((item) => ["generated", "pending_approval", "published"].includes(item.status)).length;
-  const publishedPosts = state.posts.filter((item) => item.status === "published").length;
-  const errorCount = state.sources.filter((item) => item.last_error).length + state.posts.filter((item) => item.status === "failed" || item.error).length;
-  const recentErrors = (state.errorLogs || []).slice(-4).reverse();
+function renderSources() {
+  const body = $("#sourcesTableBody");
+  const empty = $("#sourcesEmptyState");
+  const total = state.sources.length;
+  const errors = state.sources.filter((item) => item.last_error).length;
+  const disabled = state.sources.filter((item) => !item.enabled).length;
+  const locked = !hasAdminKey();
 
-  const items = [
-    { time: formatShortTime(new Date()), text: `Сьогодні отримано ${todayNews} новин`, tone: "ok" },
-    { time: formatShortTime(new Date()), text: `Створено ${generatedPosts} постів`, tone: "ok" },
-    { time: formatShortTime(new Date()), text: `Опубліковано ${publishedPosts} постів`, tone: "ok" },
-    { time: formatShortTime(new Date()), text: `Проблем потребують уваги: ${errorCount}`, tone: errorCount ? "warn" : "ok" },
-    ...recentErrors.map((line) => ({
-      time: line.split(" ")[0]?.replace(",", "") || "",
-      text: line.length > 160 ? `${line.slice(0, 157)}...` : line,
+  const addSourceBtn = $("#openSourceModalBtn");
+  const sourcesStatusBtn = $("#sourcesStatus");
+  const sourcesCountBtn = $("#sourcesCount");
+  if (addSourceBtn) addSourceBtn.disabled = locked;
+  if (sourcesStatusBtn) sourcesStatusBtn.disabled = locked;
+  if (sourcesCountBtn) sourcesCountBtn.disabled = locked;
+
+  if (body) {
+    if (locked) {
+      renderPlaceholder("#sourcesTableBody", "Enter the admin access code to manage sources.", 4);
+    } else if (!total) {
+      renderPlaceholder("#sourcesTableBody", "No sources added yet. Use Add Source to unlock the workflow.", 4);
+    } else {
+      body.innerHTML = state.sources.map(renderSourceRow).join("");
+    }
+  }
+
+  if (empty) {
+    empty.hidden = locked ? false : total > 0;
+    if (locked) {
+      empty.textContent = "Enter the admin access code to manage sources.";
+    } else if (!total) {
+      empty.textContent = "Add a source to unlock the workflow.";
+    }
+  }
+
+  if (!total) {
+    setStatus("#sourcesStatus", "WAIT", "Sources not added yet");
+    setStatus("#sourcesCount", "WAIT", "Sources added: 0");
+  } else if (errors) {
+    setStatus("#sourcesStatus", "ERROR", `${errors} source${errors === 1 ? "" : "s"} need attention`);
+    setStatus("#sourcesCount", "OK", `Sources added: ${total}`);
+  } else if (disabled) {
+    setStatus("#sourcesStatus", "WAIT", `Sources ready with ${disabled} disabled`);
+    setStatus("#sourcesCount", "OK", `Sources added: ${total}`);
+  } else {
+    setStatus("#sourcesStatus", "OK", "Sources ready for launch");
+    setStatus("#sourcesCount", "OK", `Sources added: ${total}`);
+  }
+
+  renderSourceTemplates();
+  renderSourceModalState();
+}
+
+function renderKeywords() {
+  const body = $("#keywordsTableBody");
+  if (!body) return;
+  if (!hasAdminKey()) {
+    renderPlaceholder("#keywordsTableBody", "Enter the admin access code to manage keywords.", 2);
+    return;
+  }
+  if (!state.keywords.length) {
+    renderPlaceholder("#keywordsTableBody", "No keywords yet. Add the first keyword to guide filtering.", 2);
+    return;
+  }
+
+  body.innerHTML = state.keywords
+    .map((keyword) => {
+      return `
+        <tr>
+          <td data-label="Keyword">
+            <span class="badge badge--ok">${escapeHtml(keyword.word)}</span>
+          </td>
+          <td data-label="Action">
+            <div class="row-actions">
+              <button class="danger" type="button" data-delete-keyword="${escapeHtml(keyword.id)}">Delete</button>
+            </div>
+          </td>
+        </tr>`;
+    })
+    .join("");
+}
+
+function renderFilters() {
+  const draft = state.settingsDraft;
+  const language = $("#languageSelect");
+  const duplicate = $("#duplicateDetectionToggle");
+  const sourceFiltering = $("#sourceFilteringToggle");
+  const addKeywordBtn = $("#addKeywordBtn");
+
+  if (language) language.value = draft.language || "Ukrainian";
+  if (duplicate) duplicate.checked = Boolean(draft.duplicateDetection);
+  if (sourceFiltering) sourceFiltering.checked = Boolean(draft.sourceFiltering);
+  if (addKeywordBtn) addKeywordBtn.disabled = !hasAdminKey();
+
+  renderKeywords();
+}
+
+function postSummaryCounts(items) {
+  const counts = {
+    new: items.filter((post) => post.status === "new").length,
+    generated: items.filter((post) => post.status === "generated" || post.status === "pending_approval").length,
+    published: items.filter((post) => post.status === "published").length,
+    failed: items.filter((post) => post.status === "failed" || post.status === "rejected" || post.error).length,
+  };
+  return counts;
+}
+
+function renderPostRow(post) {
+  const info = postStatusInfo(post.status);
+  const headline = post.news?.title || `Post ${post.id.slice(0, 8)}`;
+  const source = post.news?.source || "—";
+  const createdAt = post.created_at || post.updated_at;
+  return `
+    <tr data-open-post-id="${escapeHtml(post.id)}">
+      <td data-label="Title">
+        <div class="post-row-title">
+          <div class="row-title">${escapeHtml(headline)}</div>
+          <div class="row-subtle">${escapeHtml(post.news?.summary || post.generated_text || "No preview available.")}</div>
+        </div>
+      </td>
+      <td data-label="Source">
+        <div class="row-title">${escapeHtml(source)}</div>
+      </td>
+      <td data-label="Status">
+        <span class="badge post-status post-status--${escapeHtml(info.tone)}">${escapeHtml(info.label)}</span>
+      </td>
+      <td data-label="Created At">${escapeHtml(formatDate(createdAt))}</td>
+    </tr>`;
+}
+
+function renderPosts() {
+  const body = $("#postsTableBody");
+  const summary = $("#postsSummary");
+  if (!body || !summary) return;
+
+  if (!hasAdminKey()) {
+    renderPlaceholder("#postsTableBody", "Enter the admin access code to view generated posts.", 4);
+    setHtml("#postsSummary", "");
+    return;
+  }
+
+  if (!state.posts.length) {
+    renderPlaceholder("#postsTableBody", "No posts yet. Parse sources to create the first draft.", 4);
+  } else {
+    const sorted = [...state.posts].sort((left, right) => new Date(right.created_at) - new Date(left.created_at));
+    body.innerHTML = sorted.map(renderPostRow).join("");
+  }
+
+  const counts = postSummaryCounts(state.posts);
+  setHtml(
+    "#postsSummary",
+    [
+      `<div class="status status--run">New: ${counts.new}</div>`,
+      `<div class="status status--wait">Generated: ${counts.generated}</div>`,
+      `<div class="status status--ok">Published: ${counts.published}</div>`,
+      `<div class="status status--error">Failed: ${counts.failed}</div>`,
+    ].join("")
+  );
+}
+
+function renderPipelineStepper() {
+  const context = pipelineContext();
+  const meta = context.meta || {};
+  const stages = meta.stages || {};
+  const currentKey = meta.stage_key || state.pipelineStepFocus || "Pipeline Started";
+  const statusState = context.stopped ? "stopped" : context.running ? "running" : context.failed ? "failed" : "pending";
+
+  setHtml(
+    "#pipelineStepper",
+    PIPELINE_STEPS.map((step) => {
+      const stageState = stages[step.key] || "pending";
+      const isCurrent = step.key === currentKey || (step.key === "Completed" && context.status.task_state === "SUCCESS");
+      const tone = pipelineTone(stageState);
+      return `
+        <div class="step ${tone} ${isCurrent ? "is-active" : ""}">
+          <span class="step-label">${escapeHtml(step.label)}</span>
+          <span class="step-state">${escapeHtml(translateStageState(stageState))}</span>
+        </div>`;
+    }).join("")
+  );
+
+  const buttonLocked = !hasAdminKey();
+  const startBtn = $("#startPipelineBtn");
+  const stopBtn = $("#stopPipelineBtn");
+  if (startBtn) startBtn.disabled = buttonLocked || context.running;
+  if (stopBtn) stopBtn.disabled = buttonLocked || !context.running;
+
+  const badgeText = context.running ? "Running" : context.failed ? "Error" : "Stopped";
+  const badgeToken = context.running ? "RUN" : context.failed ? "ERROR" : "WAIT";
+  setStatus("#pipelineStatusBadge", badgeToken, badgeText);
+
+  let message = "Pipeline paused. Start it when sources are ready.";
+  if (buttonLocked) {
+    message = "Enter the admin access code in Settings to unlock the pipeline.";
+  } else if (context.running) {
+    message = `Running: ${translateStageLabel(meta.stage_label || meta.stage_key || "Pipeline Started")}`;
+  } else if (context.failed) {
+    message = explainErrorBody(context.status.task_result || context.status.task_meta, "Pipeline finished with an error");
+  } else if (context.stopped) {
+    message = "Pipeline stopped. Use Start Pipeline to run collection again.";
+  }
+  setText("#pipelineStatusMessage", message);
+
+  const note = [];
+  if (!state.sources.length) note.push("Add at least one source to unlock the workflow.");
+  if (state.sources.some((source) => source.type === "tg")) note.push("Telegram sources are included in the scenario.");
+  if (state.settingsDraft.language) note.push(`Language: ${state.settingsDraft.language}.`);
+  if (state.settingsDraft.duplicateDetection) note.push("Duplicate detection is enabled.");
+  if (state.settingsDraft.sourceFiltering) note.push("Source filtering is enabled.");
+  if (!note.length) note.push("Guided workflow: sources → filters → AI → review → publish.");
+  setText("#quickActionNote", note.join(" "));
+
+  return statusState;
+}
+
+function buildActivityRows() {
+  const rows = [];
+  const now = Date.now();
+  const context = pipelineContext();
+  const meta = context.meta || {};
+
+  if (context.status && Object.keys(context.status).length) {
+    const pipelineStatusText = context.running ? "Running" : context.failed ? "Error" : context.stopped ? "Stopped" : context.status.task_state === "SUCCESS" ? "Done" : "Ready";
+    rows.push({
+      ts: now,
+      time: formatShortTime(new Date(now)),
+      action: `Pipeline · ${translateStageLabel(meta.stage_label || meta.stage_key || "Start")}`,
+      status: pipelineStatusText,
+      tone: context.running ? "run" : context.failed ? "error" : context.stopped ? "warn" : "ok",
+    });
+  }
+
+  [...state.news]
+    .sort((left, right) => new Date(right.published_at) - new Date(left.published_at))
+    .slice(0, 5)
+    .forEach((item, index) => {
+      const ts = new Date(item.published_at || Date.now()).getTime() || now - (index + 1) * 60000;
+      rows.push({
+        ts,
+        time: formatShortTime(new Date(ts)),
+        action: `News collected · ${item.source}`,
+        status: "Success",
+        tone: "ok",
+      });
+    });
+
+  [...state.posts]
+    .sort((left, right) => new Date(right.created_at) - new Date(left.created_at))
+    .slice(0, 5)
+    .forEach((post, index) => {
+      const info = postStatusInfo(post.status);
+      const ts = new Date(post.created_at || post.updated_at || Date.now()).getTime() || now - (index + 1) * 45000;
+      const action =
+        post.status === "published"
+          ? "Telegram publish"
+          : post.status === "failed" || post.status === "rejected"
+            ? "Post failed"
+            : "AI generation";
+      rows.push({
+        ts,
+        time: formatShortTime(new Date(ts)),
+        action,
+        status: info.label,
+        tone: info.tone,
+      });
+    });
+
+  [...state.errorLogs].slice(-8).reverse().forEach((line, index) => {
+    const ts = now - (index + 1) * 30000;
+    rows.push({
+      ts,
+      time: formatShortTime(new Date(ts)),
+      action: "System log",
+      status: line.length > 48 ? `${line.slice(0, 48)}...` : line,
       tone: "error",
-    })),
-  ];
+    });
+  });
 
-  list.innerHTML =
-    items
-      .map(
-        (item) => `
-          <div class="event-row event-row--${item.tone}">
-            <span class="event-time">${escapeHtml(item.time || "зараз")}</span>
-            <span class="event-text">${escapeHtml(item.text)}</span>
-          </div>`
-      )
-      .join("") || '<div class="item muted">Подій поки що немає.</div>';
+  return rows.sort((left, right) => right.ts - left.ts).slice(0, 20);
+}
+
+function renderDashboard() {
+  const context = pipelineContext();
+  const meta = context.meta || {};
+  const activeSources = state.sources.filter((item) => item.enabled && !item.last_error).length;
+  const collected = meta.new_items ?? state.news.length;
+  const filtered = meta.queued_for_ai ?? state.posts.filter((post) => ["generated", "pending_approval", "published"].includes(post.status)).length;
+  const generated = state.posts.filter((post) => ["generated", "pending_approval", "published"].includes(post.status)).length;
+  const published = state.posts.filter((post) => post.status === "published").length;
+  const failed =
+    state.sources.filter((item) => item.last_error).length +
+    state.posts.filter((post) => post.status === "failed" || post.status === "rejected" || post.error).length +
+    (state.errorLogs?.length || 0) +
+    (context.failed ? 1 : 0);
+
+  setText("#statNewsCollected", String(collected));
+  setText("#statNewsFiltered", String(filtered));
+  setText("#statPostsGenerated", String(generated));
+  setText("#statPostsPublished", String(published));
+  setText("#statFailedTasks", String(failed));
+
+  if (!hasAdminKey()) {
+    renderPlaceholder("#activityTableBody", "Enter the admin access code to unlock live activity.", 3);
+  } else {
+    setHtml(
+      "#activityTableBody",
+      buildActivityRows()
+        .map(
+          (row) => `
+            <tr>
+              <td data-label="Time">${escapeHtml(row.time)}</td>
+              <td data-label="Action">${escapeHtml(row.action)}</td>
+              <td data-label="Status"><span class="badge badge--${escapeHtml(row.tone)}">${escapeHtml(row.status)}</span></td>
+            </tr>`
+        )
+        .join("") || `<tr><td colspan="3" class="muted">No activity yet.</td></tr>`
+    );
+  }
+
+  const startBtn = $("#startPipelineBtn");
+  const stopBtn = $("#stopPipelineBtn");
+  const parseBtn = $("#parseNewsBtn");
+  const generateBtn = $("#generatePostsBtn");
+  const publishBtn = $("#publishPendingBtn");
+  if (startBtn) startBtn.disabled = !hasAdminKey() || context.running;
+  if (stopBtn) stopBtn.disabled = !hasAdminKey() || !context.running;
+  if (parseBtn) parseBtn.disabled = !hasAdminKey();
+  if (generateBtn) generateBtn.disabled = !hasAdminKey();
+  if (publishBtn) publishBtn.disabled = !hasAdminKey();
+
+  const totalSources = state.sources.length;
+  const locked = !hasAdminKey();
+  if (locked) {
+    setStatus("#pipelineStatusBadge", "WAIT", "Stopped");
+  } else if (context.running) {
+    setStatus("#pipelineStatusBadge", "RUN", "Running");
+  } else if (context.failed) {
+    setStatus("#pipelineStatusBadge", "ERROR", "Error");
+  } else {
+    setStatus("#pipelineStatusBadge", "WAIT", "Stopped");
+  }
+
+  if (!locked) {
+    if (context.running) {
+      setText("#pipelineStatusMessage", `Running: ${translateStageLabel(meta.stage_label || meta.stage_key || "Start")}`);
+    } else if (context.failed) {
+      setText("#pipelineStatusMessage", explainErrorBody(context.status.task_result || context.status.task_meta, "Pipeline finished with an error"));
+    } else if (!totalSources) {
+      setText("#pipelineStatusMessage", "Add sources first. The pipeline becomes useful when at least one source is connected.");
+    } else if (totalSources < 3) {
+      setText("#pipelineStatusMessage", "Pipeline ready. Recommended: 3-10 sources for better filtering.");
+    } else {
+      setText("#pipelineStatusMessage", "Pipeline ready. Start it when you want to collect, filter, and publish.");
+    }
+  }
+
+  renderPipelineStepper();
+}
+
+function renderOpenAIStatus() {
+  const check = state.openaiCheckResult;
+  const configured = check ? Boolean(check.ok) : Boolean(state.publicStatus?.openai_configured);
+  const temporaryIssue = check ? !check.ok && ["rate_limited", "timeout", "unavailable"].includes(check.status) : false;
+  const label = check
+    ? check.ok
+      ? "OpenAI connected"
+      : temporaryIssue
+        ? "OpenAI temporarily unavailable"
+        : "OpenAI not verified"
+    : configured
+      ? "OpenAI connected"
+      : "OpenAI not configured";
+  const token = check ? (check.ok ? "OK" : temporaryIssue ? "WAIT" : "ERROR") : configured ? "OK" : "WAIT";
+  setStatus("#openaiStatus", token, label);
+  setText("#openaiCheckResult", check ? JSON.stringify(check, null, 2) : "OpenAI test will show the live server response.");
+}
+
+function renderTelegramStatus() {
+  const settings = state.settings || state.publicStatus || {};
+  const check = state.telegramCheckResult;
+  const botOk = check ? Boolean(check.bot_ok) : Boolean(settings.telegram_bot_configured);
+  const channelOk = check ? Boolean(check.channel_ok) : Boolean(settings.telegram_target_channel);
+  const connected = check ? Boolean(check.ok) : Boolean(settings.telegram_connected);
+  const lastDelivery = settings.last_successful_delivery_at ? formatDate(settings.last_successful_delivery_at) : "—";
+
+  setStatus(
+    "#settingsTelegramConnectionStatus",
+    connected ? "OK" : check && check.status && check.status !== "missing_bot" && check.status !== "missing_channel" ? "ERROR" : "WAIT",
+    connected ? "Telegram connected and ready" : "Telegram connection scenario"
+  );
+
+  let reason = "Telegram connection scenario will explain what is missing.";
+  if (check?.message) {
+    reason = check.message;
+  } else if (!botOk && !channelOk) {
+    reason = "Open Settings → Telegram and fill API ID, API HASH, Session, and Channel Username in the live server config.";
+  } else if (!botOk) {
+    reason = "Bot access is incomplete. Check API ID, API HASH, and Session.";
+  } else if (!channelOk) {
+    reason = "Channel is missing. Add Channel Username or a valid t.me link.";
+  } else if (!connected) {
+    reason = "Telegram is configured but not confirmed yet. Use Test Telegram.";
+  }
+  setText("#settingsTelegramConnectionReason", reason);
+
+  setStatus(
+    "#deliveryStatus, #settingsDeliveryStatus",
+    settings.last_successful_delivery_at ? "OK" : "WAIT",
+    settings.last_successful_delivery_at ? `Last successful delivery: ${lastDelivery}` : "Last successful delivery: none yet"
+  );
+
+  setText("#telegramCheckResult", check ? JSON.stringify(check, null, 2) : "Telegram test will show the live server response.");
+}
+
+function renderSettings() {
+  const draft = state.settingsDraft;
+  const apiKey = $("#apiKey");
+  const openai = $("#openaiApiKeyInput");
+  const telegramApiId = $("#telegramApiIdInput");
+  const telegramApiHash = $("#telegramApiHashInput");
+  const telegramChannel = $("#telegramChannelInput");
+  const parsingInterval = $("#parsingIntervalInput");
+  const aiGenerationInterval = $("#aiGenerationIntervalInput");
+  const publishingInterval = $("#publishingIntervalInput");
+  const language = $("#languageSelect");
+  const duplicate = $("#duplicateDetectionToggle");
+  const sourceFiltering = $("#sourceFilteringToggle");
+  const autoPublish = $("#autoPublishToggle");
+
+  if (apiKey) apiKey.value = draft.adminApiKey || "";
+  if (openai) openai.value = draft.openaiApiKey || "";
+  if (telegramApiId) telegramApiId.value = draft.telegramApiId || "";
+  if (telegramApiHash) telegramApiHash.value = draft.telegramApiHash || "";
+  if (telegramChannel) telegramChannel.value = draft.telegramChannel || "";
+  if (parsingInterval) parsingInterval.value = draft.parsingInterval || "";
+  if (aiGenerationInterval) aiGenerationInterval.value = draft.aiGenerationInterval || "";
+  if (publishingInterval) publishingInterval.value = draft.publishingInterval || "";
+  if (language) language.value = draft.language || "Ukrainian";
+  if (duplicate) duplicate.checked = Boolean(draft.duplicateDetection);
+  if (sourceFiltering) sourceFiltering.checked = Boolean(draft.sourceFiltering);
+  if (autoPublish) autoPublish.checked = Boolean(draft.autoPublishPosts);
+
+  setStatus("#settingsAdminKeyStatus", hasAdminKey() ? "OK" : "WAIT", hasAdminKey() ? "Access code active" : "Access code not checked yet");
+  renderOpenAIStatus();
+  renderTelegramStatus();
+
+  const verifyOpenaiBtn = $("#verifyOpenaiBtn");
+  const checkTelegramBtn = $("#checkTelegramBtn");
+  if (verifyOpenaiBtn) verifyOpenaiBtn.disabled = !hasAdminKey();
+  if (checkTelegramBtn) checkTelegramBtn.disabled = !hasAdminKey();
+  if ($("#sourceSubmitBtn")) $("#sourceSubmitBtn").disabled = !hasAdminKey();
+}
+
+function renderLockedPrivateBlocks() {
+  renderPlaceholder("#keywordsTableBody", "Enter the admin access code to manage keywords.", 2);
+  renderPlaceholder("#postsTableBody", "Enter the admin access code to view generated posts.", 4);
+  renderPlaceholder("#sourcesTableBody", "Enter the admin access code to manage sources.", 4);
+  setHtml("#postsSummary", "");
+  setStatus("#sourcesStatus", "WAIT", "Sources not added yet");
+  setStatus("#sourcesCount", "WAIT", "Sources added: 0");
+  setText("#pipelineStatusBadge", "Stopped");
+  setText("#pipelineStatusMessage", "Enter the admin access code in Settings to unlock the pipeline.");
+  setText("#quickActionNote", "Enter the admin access code in Settings to unlock private actions.");
+}
+
+function sortByDateDesc(items, key) {
+  return [...items].sort((left, right) => new Date(right[key] || 0) - new Date(left[key] || 0));
 }
 
 async function loadPublicData() {
@@ -1127,81 +1192,89 @@ async function loadPublicData() {
   ]);
   state.publicStatus = publicStatus;
   state.sourceSuggestions = sourceSuggestions;
-  renderOpenAIStatus();
-  renderTelegramStatus();
-  renderSuggestions();
-  renderOverview();
+  renderPublicState();
+  renderSourceTemplates();
 }
 
 async function loadPrivateData() {
-  const [settings, topics, keywords, sources, logs] = await Promise.all([
+  const [settings, sources, keywords, news, posts, logs, pipeline] = await Promise.all([
     api("/api/settings"),
-    api("/api/topics/"),
-    api("/api/keywords/"),
     api("/api/sources/"),
+    api("/api/keywords/"),
+    api("/api/news/?limit=50"),
+    api("/api/posts/?limit=50"),
     api("/api/logs/errors").catch(() => ({ errors: [] })),
+    api(`/api/pipeline/status${state.pipelineTaskId ? `?task_id=${encodeURIComponent(state.pipelineTaskId)}` : ""}`),
   ]);
 
   state.settings = settings;
-  state.topics = topics;
-  state.keywords = keywords;
-  state.sources = sources;
+  if (!localStorage.getItem(SETTINGS_DRAFT_KEY)) {
+    state.settingsDraft.autoPublishPosts = Boolean(settings.auto_publish_posts);
+    writeJson(SETTINGS_DRAFT_KEY, state.settingsDraft);
+  }
+  state.sources = sortByDateDesc(sources, "created_at");
+  state.keywords = [...keywords].sort((left, right) => String(left.word).localeCompare(String(right.word), "uk"));
+  state.news = sortByDateDesc(news, "published_at");
+  state.posts = sortByDateDesc(posts, "created_at");
   state.errorLogs = logs.errors || [];
-
-  renderTopicSelects();
-  renderTopics();
-  renderSources();
-  renderOpenAIStatus();
-  renderTelegramStatus();
-  renderSourceFormState();
-  renderOverview();
-  renderLogs();
-
-  const pipeline = await api(`/api/pipeline/status${state.pipelineTaskId ? `?task_id=${encodeURIComponent(state.pipelineTaskId)}` : ""}`);
   state.pipelineStatus = pipeline;
-  renderPipeline();
 
-  await Promise.all([renderNews(), renderPosts()]);
+  if (pipeline && isPipelineTerminal(pipeline)) {
+    state.pipelineTaskId = "";
+    sessionStorage.removeItem("pipelineTaskId");
+  }
+
+  if (state.pipelineTaskId && pipeline && !isPipelineTerminal(pipeline) && !state.taskTimers.has(state.pipelineTaskId)) {
+    pollPipeline(state.pipelineTaskId);
+  }
 }
 
 async function refreshAll() {
+  closeAllDialogs();
   await loadPublicData();
-  renderTopicSelects();
-  renderSourceFormState();
-  renderOverview();
-  renderLogs();
-
-  if (!hasAdminKey()) {
-    setHtml("#topicsList", '<div class="item muted">Додайте код доступу, щоб бачити правила відбору.</div>');
-    setHtml("#rssSourcesList", '<div class="item muted">Додайте код доступу, щоб бачити джерела.</div>');
-    setHtml("#telegramSourcesList", '<div class="item muted">Додайте код доступу, щоб бачити Telegram-джерела.</div>');
-    setStatus("#sourcesStatus", "WAIT", "Джерела приховано без коду доступу");
-    setStatus("#sourcesCount", "WAIT", "Джерел додано: --");
-    setHtml("#newsList", '<div class="item muted">Додайте код доступу, щоб бачити новини.</div>');
-    setHtml("#postsList", '<tr><td colspan="4" class="muted">Додайте код доступу, щоб бачити пости.</td></tr>');
-    setHtml("#publishedList", '<div class="item muted">Додайте код доступу, щоб бачити публікації.</div>');
-    setHtml("#logsList", '<div class="item muted">Додайте код доступу, щоб бачити події.</div>');
-    setText("#pipelineResult", "");
-    setStatus("#workflowStatus", "WAIT", "Очікує запуску");
-    renderSavedSearches();
-    renderPipeline();
-    renderSuggestions();
-    return;
+  if (hasAdminKey()) {
+    try {
+      await loadPrivateData();
+    } catch (error) {
+      state.sources = [];
+      state.keywords = [];
+      state.news = [];
+      state.posts = [];
+      state.errorLogs = [];
+      state.pipelineStatus = null;
+      setStatus("#settingsAdminKeyStatus", "ERROR", error.message);
+      showToast(`Private data could not be loaded: ${error.message}`, "error");
+    }
+  } else {
+    state.sources = [];
+    state.keywords = [];
+    state.news = [];
+    state.posts = [];
+    state.errorLogs = [];
+    state.pipelineStatus = null;
   }
+  renderAll();
+}
 
-  try {
-    await loadPrivateData();
-  } catch (error) {
-    setStatus("#settingsAdminKeyStatus", "ERROR", error.message);
-    setStatus("#workflowStatus", "ERROR", error.message);
+function renderAll() {
+  renderPublicState();
+  renderDashboard();
+  renderSources();
+  renderFilters();
+  renderPosts();
+  renderSettings();
+  if (!hasAdminKey()) {
+    renderLockedPrivateBlocks();
   }
 }
 
 async function startPipeline() {
-  const done = withButtonState($("#runPipelineBtn"), "Запускаю...");
+  if (!hasAdminKey()) {
+    showToast("Add the admin access code in Settings to start the pipeline.", "warn");
+    return;
+  }
+  const done = withButtonState($("#startPipelineBtn"), "Starting...");
   try {
-    openDialog("#pipelineModal");
-    openSection("logsSection");
     state.uiPaused = false;
     state.pipelineStepFocus = "Pipeline Started";
     const result = await api("/api/pipeline/run", { method: "POST" });
@@ -1209,35 +1282,99 @@ async function startPipeline() {
     sessionStorage.setItem("pipelineTaskId", result.task_id);
     state.pipelineStatus = {
       task_state: "STARTED",
-      task_meta: { pipeline_running: true, stage_key: "Pipeline Started", stage_label: "Конвеєр запущено", stages: {} },
+      task_meta: { pipeline_running: true, stage_key: "Pipeline Started", stage_label: "Pipeline Started", stages: {} },
       task_result: {},
     };
-    renderPipeline();
-    done("success", "Почато");
-    showToast("Конвеєр запущено", "ok");
+    renderDashboard();
+    done("success", "Started");
+    showToast("Pipeline started", "ok");
     await pollPipeline(result.task_id);
   } catch (error) {
-    done("error", "Помилка");
-    setStatus("#workflowStatus", "ERROR", error.message);
-    showToast(`Конвеєр не запустився: ${error.message}`, "error");
+    done("error", "Error");
+    setStatus("#pipelineStatusBadge", "ERROR", "Error");
+    setText("#pipelineStatusMessage", error.message);
+    showToast(`Pipeline did not start: ${error.message}`, "error");
+  }
+}
+
+async function stopPipeline() {
+  if (!hasAdminKey()) {
+    showToast("Add the admin access code in Settings to stop the pipeline.", "warn");
+    return;
+  }
+  const done = withButtonState($("#stopPipelineBtn"), "Stopping...");
+  try {
+    const result = await api("/api/pipeline/stop", { method: "POST" });
+    state.uiPaused = true;
+    state.pipelineStatus = {
+      ...(state.pipelineStatus || {}),
+      task_state: "REVOKED",
+      task_meta: {
+        ...(state.pipelineStatus?.task_meta || {}),
+        pipeline_running: false,
+        stopped: true,
+        stage_label: "Stopped",
+      },
+      task_result: {
+        ...(state.pipelineStatus?.task_meta || {}),
+        ...(state.pipelineStatus?.task_result || {}),
+        stopped: true,
+      },
+    };
+    renderDashboard();
+    done("success", "Stopped");
+    showToast(result.message || "Pipeline stopped", "ok");
+    await loadPrivateData().catch(() => null);
+    renderAll();
+  } catch (error) {
+    done("error", "Error");
+    setStatus("#pipelineStatusBadge", "ERROR", "Error");
+    setText("#pipelineStatusMessage", error.message);
+    showToast(`Could not stop pipeline: ${error.message}`, "error");
   }
 }
 
 async function pollPipeline(taskId) {
-  const previous = state.taskTimers.get(taskId);
-  if (previous) window.clearInterval(previous);
+  const existing = state.taskTimers.get(taskId);
+  if (existing) return;
 
   const timer = window.setInterval(async () => {
     try {
-      const status = await api(`/api/pipeline/status?task_id=${encodeURIComponent(taskId)}`);
+      let status = await api(`/api/pipeline/status?task_id=${encodeURIComponent(taskId)}`);
+      if (status.task_state === "REVOKED" && state.uiPaused && state.pipelineStatus) {
+        status = {
+          ...state.pipelineStatus,
+          task_state: "REVOKED",
+          task_meta: {
+            ...(state.pipelineStatus.task_meta || {}),
+            stopped: true,
+          },
+          task_result: {
+            ...(state.pipelineStatus.task_meta || {}),
+            ...(state.pipelineStatus.task_result || {}),
+            stopped: true,
+          },
+        };
+      }
       state.pipelineStatus = status;
-      renderPipeline();
-      if (status.task_state === "SUCCESS" || status.task_state === "FAILURE") {
+      renderDashboard();
+      const stopped = status.task_state === "REVOKED" || Boolean(status.task_result?.stopped || status.task_meta?.stopped);
+      if (status.task_state === "SUCCESS" || status.task_state === "FAILURE" || stopped) {
         window.clearInterval(timer);
         state.taskTimers.delete(taskId);
-        state.pipelineStepFocus = status.task_state === "SUCCESS" ? "Completed" : state.pipelineStepFocus;
-        showToast(status.task_state === "SUCCESS" ? "Конвеєр завершено" : "Конвеєр завершився з помилкою", status.task_state === "SUCCESS" ? "ok" : "error");
-        await loadPrivateData();
+        state.pipelineStepFocus = stopped
+          ? status.task_result?.stage_key || status.task_meta?.stage_key || state.pipelineStepFocus
+          : status.task_state === "SUCCESS"
+            ? "Completed"
+            : state.pipelineStepFocus;
+        showToast(
+          stopped ? "Pipeline stopped" : status.task_state === "SUCCESS" ? "Pipeline completed" : "Pipeline finished with an error",
+          stopped ? "warn" : status.task_state === "SUCCESS" ? "ok" : "error"
+        );
+        state.pipelineTaskId = "";
+        sessionStorage.removeItem("pipelineTaskId");
+        await loadPrivateData().catch(() => null);
+        renderAll();
       }
     } catch {
       window.clearInterval(timer);
@@ -1248,479 +1385,425 @@ async function pollPipeline(taskId) {
   state.taskTimers.set(taskId, timer);
 }
 
-function pausePipeline() {
-  const done = withButtonState($("#pausePipelineBtn"), "Зупиняю...");
-  for (const timer of state.taskTimers.values()) {
-    window.clearInterval(timer);
-  }
-  state.taskTimers.clear();
-  state.pipelineTaskId = "";
-  sessionStorage.removeItem("pipelineTaskId");
-  state.uiPaused = true;
-  renderPipeline();
-  setStatus("#workflowStatus", "WAIT", "Оновлення зупинено");
-  done("warn", "Пауза");
-  showToast("Пауза панелі включена. Активну backend-задачу не скасовано.", "warn");
-}
-
-async function saveTopic(event) {
+async function addKeyword(event) {
   event.preventDefault();
-  const done = withButtonState($("#saveTopicBtn"), "Зберігаю...");
-  const payload = Object.fromEntries(new FormData(event.target).entries());
+  if (!hasAdminKey()) {
+    showToast("Add the admin access code in Settings to manage keywords.", "warn");
+    return;
+  }
+  const done = withButtonState($("#addKeywordBtn"), "Saving...");
+  const input = $("#keywordInput");
+  const word = normalize(input?.value);
+  if (!word) {
+    done("warn", "Empty");
+    showToast("Keyword cannot be empty", "warn");
+    return;
+  }
+
   try {
-    const topic = await api("/api/topics/", {
+    await api("/api/keywords/", {
       method: "POST",
-      body: JSON.stringify({
-        name: payload.name,
-        description: payload.description || "",
-        enabled: true,
-      }),
+      body: JSON.stringify({ word }),
     });
-    const keywords = splitKeywords(payload.keywords);
-    for (const word of keywords) {
-      await api("/api/keywords/", {
-        method: "POST",
-        body: JSON.stringify({ word, topic_id: topic.id }),
-      });
-    }
-    setStatus("#topicSaveStatus", "OK", "Тему активовано");
-    done("success", "Збережено");
-    showToast("Правило додано", "ok");
+    if (input) input.value = "";
     await loadPrivateData();
+    renderAll();
+    done("success", "Added");
+    showToast("Keyword added", "ok");
   } catch (error) {
-    done("error", "Помилка");
-    setStatus("#topicSaveStatus", "ERROR", error.message);
-    showToast(`Не вдалося зберегти правило: ${error.message}`, "error");
+    done("error", "Error");
+    showToast(`Could not add keyword: ${error.message}`, "error");
   }
 }
 
-async function createSource(event) {
-  event.preventDefault();
-  const form = event.target;
-  await submitSourceForm(form);
+async function deleteKeyword(keywordId) {
+  if (!hasAdminKey()) {
+    showToast("Add the admin access code in Settings to manage keywords.", "warn");
+    return;
+  }
+  await api(`/api/keywords/${keywordId}`, { method: "DELETE" });
+  await loadPrivateData();
+  renderAll();
+  showToast("Keyword deleted", "ok");
 }
 
-async function submitSourceForm(form) {
-  const done = withButtonState($("#sourceSubmitBtn"), "Додаю...");
+async function submitSourceForm(event) {
+  event.preventDefault();
+  if (!hasAdminKey()) {
+    showToast("Add the admin access code in Settings to save sources.", "warn");
+    return;
+  }
+
+  const form = event.target;
+  const done = withButtonState($("#sourceSubmitBtn"), "Saving...");
   const payload = Object.fromEntries(new FormData(form).entries());
-  const status = $("#sourceSaveStatus");
-  const normalizedType = normalize(payload.type) === "tg" ? "tg" : "site";
-  const normalizedUrl = normalizeSourceUrl(normalizedType, payload.url);
+  const sourceId = normalize(form.dataset.sourceId);
+  const mode = form.dataset.mode || "create";
+  const type = normalize(payload.type) === "tg" ? "tg" : "site";
+  const normalizedUrl = normalizeSourceUrl(type, payload.url);
+  const enabled = $("#sourceEnabled")?.checked ?? true;
+
   const duplicate = state.sources.some((item) => {
-    const sameType = normalize(item.type) === normalizedType;
+    if (mode === "edit" && item.id === sourceId) return false;
+    const sameType = normalize(item.type) === type;
     const sameUrl = normalizeSourceUrl(item.type, item.url).toLowerCase() === normalizedUrl.toLowerCase();
     return sameType && sameUrl;
   });
+
   if (duplicate) {
-    done("warn", "Вже є");
-    setStatus("#sourceSaveStatus", "WAIT", "Таке джерело вже додано");
-    showToast("⚠️ Джерело вже існує", "warn");
+    done("warn", "Duplicate");
+    setStatus("#sourceSaveStatus", "WAIT", "This source already exists");
+    showToast("⚠️ Source already exists", "warn");
     return;
   }
-  if (status) {
-    status.classList.remove("status--ok", "status--error");
-    status.classList.add("status--wait", "is-loading");
-    status.textContent = "Додавання джерела";
-  }
+
   try {
-    if (normalizedType === "tg") form.url.value = normalizedUrl;
-    await api("/api/sources/", {
-      method: "POST",
-      body: JSON.stringify({
-        type: normalizedType,
-        name: payload.name,
-        url: normalizedUrl,
-        topic_id: payload.topic_id || null,
-        enabled: true,
-      }),
-    });
-    form.reset();
-    persistSourceTab(normalizedType);
-    renderSourceTabs();
-    done("success", "Додано");
-    showToast("Джерело додано", "ok");
+    const body = {
+      type,
+      name: payload.name,
+      url: normalizedUrl,
+      topic_id: null,
+      enabled,
+    };
+
+    if (mode === "edit" && sourceId) {
+      await api(`/api/sources/${sourceId}`, {
+        method: "PATCH",
+        body: JSON.stringify(body),
+      });
+    } else {
+      await api("/api/sources/", {
+        method: "POST",
+        body: JSON.stringify(body),
+      });
+    }
+
     await loadPrivateData();
+    renderAll();
     const total = state.sources.length;
     const rssCount = state.sources.filter((item) => item.type === "site").length;
     const tgCount = state.sources.filter((item) => item.type === "tg").length;
-    setStatus(
-      "#sourceSaveStatus",
-      "OK",
-      `${normalizedType === "tg" ? "Telegram-канал" : "RSS-джерело"} успішно додано. RSS: ${rssCount}. Telegram: ${tgCount}. Всього: ${total}. Далі натисни «Запустити конвеєр».`
-    );
+    const message = `${type === "tg" ? "Telegram channel" : "RSS source"} saved. RSS: ${rssCount}. Telegram: ${tgCount}. Total: ${total}.`;
+    setStatus("#sourceSaveStatus", "OK", message);
+    done("success", "Saved");
+    showToast(mode === "edit" ? "Source updated" : "Source added", "ok");
+
+    if (mode === "create") {
+      form.dataset.sourceId = "";
+      form.dataset.mode = "create";
+      $("#sourceName").value = "";
+      $("#sourceUrl").value = "";
+      $("#sourceEnabled").checked = true;
+      renderSourceModalState();
+      window.requestAnimationFrame(() => {
+        $("#sourceName")?.focus();
+      });
+    } else {
+      closeDialog("#sourceModal");
+    }
   } catch (error) {
-    done("error", "Помилка");
+    done("error", "Error");
     setStatus("#sourceSaveStatus", "ERROR", error.message);
-    showToast(`Не вдалося додати джерело: ${error.message}`, "error");
-  } finally {
-    if (status) status.classList.remove("is-loading");
+    showToast(`Could not save source: ${error.message}`, "error");
   }
 }
 
-async function updateSource(sourceId, payload) {
-  await api(`/api/sources/${sourceId}`, {
-    method: "PATCH",
-    body: JSON.stringify(payload),
-  });
-  await loadPrivateData();
+async function toggleSourceEnabled(sourceId, enabled) {
+  if (!hasAdminKey()) {
+    showToast("Add the admin access code in Settings to manage sources.", "warn");
+    return;
+  }
+  try {
+    await api(`/api/sources/${sourceId}`, {
+      method: "PATCH",
+      body: JSON.stringify({ enabled: Boolean(enabled) }),
+    });
+    await loadPrivateData();
+    renderAll();
+    showToast(enabled ? "Source enabled" : "Source disabled", "ok");
+  } catch (error) {
+    showToast(`Could not update source: ${error.message}`, "error");
+  }
 }
 
-async function removeSource(sourceId) {
+async function deleteSource(sourceId) {
+  if (!hasAdminKey()) {
+    showToast("Add the admin access code in Settings to manage sources.", "warn");
+    return;
+  }
   await api(`/api/sources/${sourceId}`, { method: "DELETE" });
   await loadPrivateData();
+  renderAll();
+  showToast("Source deleted", "ok");
 }
 
-async function removeTopic(topicId) {
-  await api(`/api/topics/${topicId}`, { method: "DELETE" });
-  await loadPrivateData();
+function openPostModal(postId) {
+  const post = state.posts.find((item) => item.id === postId);
+  if (!post) return;
+  state.selectedPostId = postId;
+  const news = post.news || state.news.find((item) => item.id === post.news_id) || null;
+  const info = postStatusInfo(post.status);
+  const original = news?.raw_text || news?.summary || post.generated_text || "No original text available.";
+  const generated = post.generated_text || news?.summary || news?.raw_text || "";
+
+  setText("#postModalTitle", news?.title || `Post ${post.id.slice(0, 8)}`);
+  setText("#postModalMeta", `${news?.source || "—"} · ${formatDate(post.created_at || post.updated_at)}${news?.url ? ` · ${news.url}` : ""}`);
+  setStatus("#postModalStatus", info.tone === "ok" ? "OK" : info.tone === "error" ? "ERROR" : info.tone === "run" ? "RUN" : "WAIT", info.label);
+  setText("#postModalNewsTitle", news?.title || "News");
+  setText("#postModalOriginal", original);
+  const textarea = $("#postModalGeneratedText");
+  if (textarea) textarea.value = generated;
+
+  const publishBtn = $("#publishPostBtn");
+  const regenerateBtn = $("#regeneratePostBtn");
+  if (publishBtn) publishBtn.disabled = !hasAdminKey() || post.status === "published";
+  if (regenerateBtn) regenerateBtn.disabled = !hasAdminKey() || !post.news_id;
+
+  openDialog("#postModal");
 }
 
-async function improveWithAI(newsId, button) {
-  const done = withButtonState(button, "Виконую...");
+async function regeneratePost(postId) {
+  if (!hasAdminKey()) {
+    showToast("Add the admin access code in Settings to regenerate posts.", "warn");
+    return;
+  }
+  const post = state.posts.find((item) => item.id === postId);
+  if (!post?.news_id) {
+    showToast("This post is missing its original news item.", "warn");
+    return;
+  }
+  const done = withButtonState($("#regeneratePostBtn"), "Regenerating...");
   try {
-    await api(`/api/news/${newsId}/generate`, { method: "POST" });
-    done("success", "У черзі");
+    await api(`/api/news/${post.news_id}/generate`, { method: "POST" });
+    done("success", "Regenerated");
     await loadPrivateData();
-    showToast("AI-редагування запущено", "ok");
+    renderAll();
+    openPostModal(postId);
+    showToast("Post regenerated", "ok");
   } catch (error) {
-    done("error", "Помилка");
-    setStatus("#pipelineResult", "ERROR", error.message);
+    done("error", "Error");
+    showToast(`Could not regenerate post: ${error.message}`, "error");
   }
 }
 
-async function publishNews(newsId, endpoint, button) {
-  const done = withButtonState(button, "Виконую...");
-  try {
-    await api(endpoint, { method: "POST" });
-    done("success", "Готово");
-    await loadPrivateData();
-    showToast("Матеріал передано на публікацію", "ok");
-  } catch (error) {
-    done("error", "Помилка");
-    setStatus("#pipelineResult", "ERROR", error.message);
+async function publishPost(postId, generatedText = "") {
+  if (!hasAdminKey()) {
+    showToast("Add the admin access code in Settings to publish posts.", "warn");
+    return;
   }
-}
-
-async function approvePost(postId, button) {
-  const textarea = $(`[data-post-text="${postId}"]`);
-  const done = withButtonState(button, "Підтверджую...");
+  const done = withButtonState($("#publishPostBtn"), "Publishing...");
   try {
     await api(`/api/posts/${postId}/approve`, {
       method: "POST",
-      body: JSON.stringify({ generated_text: textarea ? textarea.value : "" }),
+      body: JSON.stringify({ generated_text: generatedText }),
     });
-    done("success", "Відправлено");
+    done("success", "Published");
     await loadPrivateData();
-    showToast("Пост підтверджено", "ok");
+    renderAll();
+    openPostModal(postId);
+    showToast("Post published", "ok");
   } catch (error) {
-    done("error", "Помилка");
-    setStatus("#pipelineResult", "ERROR", error.message);
+    done("error", "Error");
+    showToast(`Could not publish post: ${error.message}`, "error");
   }
 }
 
-async function removePost(postId) {
-  await api(`/api/posts/${postId}`, { method: "DELETE" });
-  await loadPrivateData();
-  showToast("Пост видалено", "ok");
+async function deletePost(postId) {
+  if (!hasAdminKey()) {
+    showToast("Add the admin access code in Settings to delete posts.", "warn");
+    return;
+  }
+  const done = withButtonState($("#deletePostBtn"), "Deleting...");
+  try {
+    await api(`/api/posts/${postId}`, { method: "DELETE" });
+    done("success", "Deleted");
+    await loadPrivateData();
+    renderAll();
+    state.selectedPostId = "";
+    closeDialog("#postModal");
+    showToast("Post deleted", "ok");
+  } catch (error) {
+    done("error", "Error");
+    showToast(`Could not delete post: ${error.message}`, "error");
+  }
 }
 
-async function testAi(event) {
-  event.preventDefault();
-  const done = withButtonState($("#testAiBtn"), "Тестую...");
-  const formData = new FormData(event.target);
-  const payload = Object.fromEntries(formData.entries());
-
+async function generateLatestPost() {
+  if (!hasAdminKey()) {
+    showToast("Add the admin access code in Settings to generate posts.", "warn");
+    return;
+  }
+  const done = withButtonState($("#generatePostsBtn"), "Generating...");
+  const candidate = [...state.news].sort((left, right) => new Date(right.published_at) - new Date(left.published_at))[0];
+  if (!candidate) {
+    done("warn", "No news");
+    showToast("No news found. Parse sources first.", "warn");
+    return;
+  }
   try {
-    const result = await api("/api/generate/", {
+    await api(`/api/news/${candidate.id}/generate`, { method: "POST" });
+    done("success", "Generated");
+    await loadPrivateData();
+    renderAll();
+    openSection("postsSection");
+    showToast("AI generation started", "ok");
+  } catch (error) {
+    done("error", "Error");
+    showToast(`Could not generate a post: ${error.message}`, "error");
+  }
+}
+
+async function publishPendingPost() {
+  if (!hasAdminKey()) {
+    showToast("Add the admin access code in Settings to publish posts.", "warn");
+    return;
+  }
+  const done = withButtonState($("#publishPendingBtn"), "Publishing...");
+  const candidate = [...state.posts].find((post) => post.status === "generated" || post.status === "pending_approval");
+  if (!candidate) {
+    done("warn", "No posts");
+    showToast("No pending posts to publish.", "warn");
+    return;
+  }
+  const text = candidate.generated_text || candidate.news?.summary || candidate.news?.raw_text || "";
+  try {
+    await api(`/api/posts/${candidate.id}/approve`, {
       method: "POST",
-      body: JSON.stringify({
-        text: payload.text,
-        title: "AI Test",
-        mode: payload.mode || "demo",
-      }),
+      body: JSON.stringify({ generated_text: text }),
     });
-    setText("#generateResult", result.generated_text || "Порожня відповідь");
-    setStatus("#aiCheckStatus", "OK", payload.mode === "demo" ? "Режим демо" : "Режим OpenAI");
-    done("success", "Тест виконано");
-  } catch (error) {
-    setText("#generateResult", error.message);
-    setStatus("#aiCheckStatus", "ERROR", error.message);
-    done("error", "Помилка");
-  }
-}
-
-function applyTopicTemplate(key) {
-  const form = $("#topicForm");
-  if (!form) return;
-  const templates = {
-    AI: {
-      name: "AI",
-      description: "Новини про штучний інтелект, моделі та автоматизацію.",
-      keywords: "ai, openai, машинне навчання, автоматизація",
-    },
-    "IT Ukraine": {
-      name: "IT Україна",
-      description: "Український IT-ринок, стартапи та події.",
-      keywords: "it, ukraine, startup, dev",
-    },
-    Business: {
-      name: "Бізнес",
-      description: "Бізнес, компанії, ринки та економіка.",
-      keywords: "business, finance, market, economy",
-    },
-    Science: {
-      name: "Наука",
-      description: "Наука, дослідження, космос та відкриття.",
-      keywords: "science, research, space, discovery",
-    },
-    Technology: {
-      name: "Технології",
-      description: "Технологічні новини, сервіси та цифрові продукти.",
-      keywords: "technology, gadgets, software, platform",
-    },
-  };
-  const template = templates[key];
-  if (!template) return;
-  form.name.value = template.name;
-  form.description.value = template.description;
-  form.keywords.value = template.keywords;
-}
-
-function fillSourceFromSuggestion(suggestion, type) {
-  if (!suggestion) return;
-
-  const form = $("#sourceForm");
-  if (!form) return;
-  form.type.value = type;
-  form.name.value = suggestion.name;
-  form.url.value = normalizeSourceUrl(type, suggestion.url);
-  form.topic_id.value = topicIdBySlug(suggestion.topic_slug) || "";
-  persistSourceTab(type);
-  renderSourceTabs();
-  renderSourceFormState();
-  form.scrollIntoView({ behavior: "smooth", block: "center" });
-}
-
-function saveSourceToExamples(sourceId) {
-  const source = state.sources.find((item) => item.id === sourceId);
-  if (!source) return;
-  const type = source.type === "tg" ? "tg" : "site";
-  const bucket = Array.isArray(state.customSourceSuggestions?.[type]) ? [...state.customSourceSuggestions[type]] : [];
-  const normalizedUrl = normalizeSourceUrl(type, source.url);
-  const payload = {
-    name: source.name,
-    url: normalizedUrl,
-    topic_slug: state.topics.find((item) => item.id === source.topic_id)?.slug || "",
-    description: `Користувацький приклад: ${source.name}`,
-    type,
-  };
-  const key = `${normalize(payload.name).toLowerCase()}|${normalize(payload.url).toLowerCase()}`;
-  if (!bucket.some((item) => `${normalize(item.name).toLowerCase()}|${normalize(item.url).toLowerCase()}` === key)) {
-    bucket.unshift(payload);
-  }
-  state.customSourceSuggestions = {
-    ...(state.customSourceSuggestions || {}),
-    [type]: bucket,
-  };
-  writeJson("customSourceSuggestions", state.customSourceSuggestions);
-  renderSuggestions();
-}
-
-async function useSourceSuggestion(index, type, button) {
-  const suggestions = mergedSourceSuggestions(type);
-  const suggestion = suggestions[index];
-  fillSourceFromSuggestion(suggestion, type);
-  const form = $("#sourceForm");
-  if (!form) return;
-  const details = button?.closest("details");
-  if (details) details.open = false;
-  await submitSourceForm(form);
-}
-
-function renderSourceTabs() {
-  const site = $("#sourceTabSite");
-  const tg = $("#sourceTabTg");
-  const modal = $("#sourceModal");
-  const activeType = persistSourceTab(state.sourceTab);
-  if (site) site.classList.toggle("active", activeType === "site");
-  if (tg) tg.classList.toggle("active", activeType === "tg");
-  if (modal) modal.dataset.activeSourceType = activeType;
-  const typeField = $("#sourceType");
-  if (typeField) typeField.value = activeType;
-  renderSourceFormState();
-}
-
-function openSourceModal() {
-  renderSourceTabs();
-  openDialog("#sourceModal");
-  window.requestAnimationFrame(() => {
-    const nameField = $("#sourceForm input[name='name']");
-    nameField?.focus();
-  });
-}
-
-function applySearchTemplate(index) {
-  const search = state.savedSearches[index];
-  if (!search) return;
-  const input = $("#newsSearch");
-  const topic = $("#newsTopic");
-  if (input) input.value = search.query || "";
-  if (topic) topic.value = search.topic_id || "";
-  renderNews();
-}
-
-function saveSearchTemplate() {
-  const query = normalize($("#newsSearch")?.value);
-  const topicId = normalize($("#newsTopic")?.value);
-  const label = query || topicId ? `${query || "Пошук"}${topicId ? " · тема" : ""}` : "Порожній пошук";
-  state.savedSearches = [...state.savedSearches, { label, query, topic_id: topicId }];
-  writeJson("savedNewsSearches", state.savedSearches);
-  renderSavedSearches();
-}
-
-function setSearchExample(value) {
-  const input = $("#newsSearch");
-  if (!input) return;
-  input.value = value;
-}
-
-function syncAiPromptPreview() {
-  const style = $("#postStyleSelect")?.value || "Інформативний";
-  const preview = $("#aiPromptPreview");
-  if (!preview) return;
-  preview.value = [
-    `Стиль поста: ${style}.`,
-    "Створи короткий Telegram-пост.",
-    "Додай емодзі.",
-    "Додай CTA.",
-    "Максимум 500 символів.",
-  ].join("\n");
-}
-
-async function toggleAutoPublish() {
-  const checkbox = $("#autoPublishToggle");
-  if (!checkbox) return;
-  try {
-    await api("/api/settings", {
-      method: "PATCH",
-      body: JSON.stringify({ auto_publish_posts: checkbox.checked }),
-    });
+    done("success", "Published");
     await loadPrivateData();
-    showToast(checkbox.checked ? "Автопублікацію увімкнено" : "Автопублікацію вимкнено", "ok");
+    renderAll();
+    openSection("postsSection");
+    showToast("Pending post published", "ok");
   } catch (error) {
-    checkbox.checked = !checkbox.checked;
-    setStatus("#deliveryStatus, #settingsDeliveryStatus", "ERROR", error.message);
-    showToast(`Не вдалося змінити автопублікацію: ${error.message}`, "error");
+    done("error", "Error");
+    showToast(`Could not publish pending post: ${error.message}`, "error");
+  }
+}
+
+async function verifyOpenAI() {
+  if (!hasAdminKey()) {
+    showToast("Add the admin access code in Settings to test OpenAI.", "warn");
+    return;
+  }
+  const done = withButtonState($("#verifyOpenaiBtn"), "Testing...");
+  try {
+    const result = await api("/api/openai/check", { method: "POST" });
+    state.openaiCheckResult = result;
+    renderOpenAIStatus();
+    renderSettings();
+    done(result.ok ? "success" : result.status === "rate_limited" || result.status === "timeout" || result.status === "unavailable" ? "warn" : "error", result.ok ? "Checked" : "Issue");
+    showToast(result.ok ? "OpenAI connected" : result.message, result.ok ? "ok" : "warn");
+  } catch (error) {
+    done("error", "Error");
+    state.openaiCheckResult = null;
+    setText("#openaiCheckResult", error.message);
+    renderSettings();
+    showToast(`Could not test OpenAI: ${error.message}`, "error");
   }
 }
 
 async function checkTelegramConnection() {
-  const done = withButtonState($("#checkTelegramBtn"), "Перевіряю...");
+  if (!hasAdminKey()) {
+    showToast("Add the admin access code in Settings to test Telegram.", "warn");
+    return;
+  }
+  const done = withButtonState($("#checkTelegramBtn"), "Testing...");
   try {
     const result = await api("/api/telegram/check", { method: "POST" });
     state.telegramCheckResult = result;
-    setText("#telegramCheckResult", JSON.stringify(result, null, 2));
     renderTelegramStatus();
-    renderOverview();
-    done(result.ok ? "success" : "warn", result.ok ? "Перевірено" : "Є нюанс");
-    showToast(result.ok ? "Telegram перевірено" : result.message, result.ok ? "ok" : "warn");
+    renderSettings();
+    done(result.ok ? "success" : "warn", result.ok ? "Checked" : "Issue");
+    showToast(result.ok ? "Telegram confirmed" : result.message, result.ok ? "ok" : "warn");
   } catch (error) {
-    done("error", "Помилка");
-    const message = error.message || "Не вдалося перевірити Telegram";
-    setText("#telegramCheckResult", message);
-    setStatus("#telegramConnectionStatus, #settingsTelegramConnectionStatus", "ERROR", message);
-    showToast(`Не вдалося перевірити Telegram: ${message}`, "error");
+    done("error", "Error");
+    state.telegramCheckResult = null;
+    setText("#telegramCheckResult", error.message);
+    renderSettings();
+    showToast(`Could not test Telegram: ${error.message}`, "error");
   }
 }
 
-async function copyTelegramEnvLines() {
-  const done = withButtonState($("#copyTelegramEnvLinesBtn"), "Копіюю...");
-  const token = normalize($("#telegramBotTokenInput")?.value);
-  const channel = normalize($("#telegramChannelInput")?.value);
+function syncDraftFromInputs() {
+  const draft = {
+    ...state.settingsDraft,
+    adminApiKey: normalize($("#apiKey")?.value),
+    openaiApiKey: normalize($("#openaiApiKeyInput")?.value),
+    telegramApiId: normalize($("#telegramApiIdInput")?.value),
+    telegramApiHash: normalize($("#telegramApiHashInput")?.value),
+    telegramChannel: normalize($("#telegramChannelInput")?.value),
+    parsingInterval: normalize($("#parsingIntervalInput")?.value),
+    aiGenerationInterval: normalize($("#aiGenerationIntervalInput")?.value),
+    publishingInterval: normalize($("#publishingIntervalInput")?.value),
+    language: $("#languageSelect")?.value || "Ukrainian",
+    duplicateDetection: Boolean($("#duplicateDetectionToggle")?.checked),
+    sourceFiltering: Boolean($("#sourceFilteringToggle")?.checked),
+    autoPublishPosts: Boolean($("#autoPublishToggle")?.checked),
+  };
+  state.settingsDraft = draft;
+  writeJson(SETTINGS_DRAFT_KEY, draft);
+  sessionStorage.setItem(ADMIN_API_KEY_KEY, draft.adminApiKey || "");
+}
+
+async function saveSettings() {
+  syncDraftFromInputs();
+  const done = withButtonState($("#saveSettingsBtn"), "Saving...");
   try {
-    const text = [`TELEGRAM_BOT_TOKEN=${token}`, `TELEGRAM_TARGET_CHANNEL=${channel}`].join("\n");
-    await navigator.clipboard.writeText(text);
-    done("success", "Скопійовано");
+    if (hasAdminKey()) {
+      await api("/api/settings", {
+        method: "PATCH",
+        body: JSON.stringify({ auto_publish_posts: Boolean(state.settingsDraft.autoPublishPosts) }),
+      });
+      await loadPrivateData().catch(() => null);
+    }
+    renderAll();
+    done("success", "Saved");
+    showToast(hasAdminKey() ? "Settings saved" : "Settings saved locally", hasAdminKey() ? "ok" : "warn");
   } catch (error) {
-    done("error", "Помилка");
-    setStatus("#telegramConnectionStatus, #settingsTelegramConnectionStatus", "ERROR", error.message);
+    done("error", "Error");
+    showToast(`Could not save settings: ${error.message}`, "error");
   }
 }
 
-function toggleTelegramEnvBox() {
-  const box = $("#telegramEnvBox");
-  if (!box) return;
-  box.hidden = !box.hidden;
+function applySettingsFromDraftToInputs() {
+  const draft = state.settingsDraft;
+  const apiKey = $("#apiKey");
+  const openai = $("#openaiApiKeyInput");
+  const telegramApiId = $("#telegramApiIdInput");
+  const telegramApiHash = $("#telegramApiHashInput");
+  const telegramChannel = $("#telegramChannelInput");
+  const parsingInterval = $("#parsingIntervalInput");
+  const aiGenerationInterval = $("#aiGenerationIntervalInput");
+  const publishingInterval = $("#publishingIntervalInput");
+  const language = $("#languageSelect");
+  const duplicate = $("#duplicateDetectionToggle");
+  const sourceFiltering = $("#sourceFilteringToggle");
+  const autoPublish = $("#autoPublishToggle");
+
+  if (apiKey) apiKey.value = draft.adminApiKey || "";
+  if (openai) openai.value = draft.openaiApiKey || "";
+  if (telegramApiId) telegramApiId.value = draft.telegramApiId || "";
+  if (telegramApiHash) telegramApiHash.value = draft.telegramApiHash || "";
+  if (telegramChannel) telegramChannel.value = draft.telegramChannel || "";
+  if (parsingInterval) parsingInterval.value = draft.parsingInterval || "";
+  if (aiGenerationInterval) aiGenerationInterval.value = draft.aiGenerationInterval || "";
+  if (publishingInterval) publishingInterval.value = draft.publishingInterval || "";
+  if (language) language.value = draft.language || "Ukrainian";
+  if (duplicate) duplicate.checked = Boolean(draft.duplicateDetection);
+  if (sourceFiltering) sourceFiltering.checked = Boolean(draft.sourceFiltering);
+  if (autoPublish) autoPublish.checked = Boolean(draft.autoPublishPosts);
 }
 
-async function verifyOpenAI() {
-  const done = withButtonState($("#verifyOpenaiBtn"), "Перевіряю...");
-  try {
-    const result = await api("/api/openai/check", { method: "POST" });
-    state.openaiCheckResult = result;
-    setText("#openaiCheckResult", JSON.stringify(result, null, 2));
-    const temporaryIssue = ["rate_limited", "timeout", "unavailable"].includes(result.status);
-    const statusText = result.ok ? "ШІ підключено" : temporaryIssue ? "ШІ тимчасово недоступний" : "ШІ не підтверджено";
-    setStatus("#openaiStatus", result.ok ? "OK" : temporaryIssue ? "WAIT" : "ERROR", statusText);
-    renderOverview();
-    done(result.ok ? "success" : temporaryIssue ? "warn" : "error", result.ok ? "Перевірено" : temporaryIssue ? "Тимчасово" : "Помилка");
-    showToast(result.ok ? "AI підключено" : result.message, result.ok ? "ok" : temporaryIssue ? "warn" : "error");
-  } catch (error) {
-    setText("#openaiCheckResult", error.message);
-    setStatus("#openaiStatus", "ERROR", error.message);
-    done("error", "Помилка");
-    showToast(`Не вдалося перевірити AI: ${error.message}`, "error");
-  }
-}
-
-function showAdminKey() {
-  const key = normalize($("#apiKey")?.value);
-  if (!key) {
-    sessionStorage.removeItem("adminApiKey");
-    renderAdminState();
-    return;
-  }
-  sessionStorage.setItem("adminApiKey", key);
-  renderAdminState();
-}
-
-async function clearAdminKey() {
-  sessionStorage.removeItem("adminApiKey");
-  if (adminKeyInput) adminKeyInput.value = "";
-  renderAdminState();
-  await refreshAll();
-}
-
-async function saveAdminKey() {
-  const done = withButtonState($("#saveKeyBtn"), "Перевіряю...");
-  const key = normalize($("#apiKey")?.value);
-  if (!key) {
-    clearAdminKey();
-    done("error", "Немає ключа");
-    return;
-  }
-
-  sessionStorage.setItem("adminApiKey", key);
-  renderAdminState();
-  try {
-    await loadPrivateData();
-    done("success", "Ключ збережено");
-    showToast("Код доступу збережено", "ok");
-  } catch (error) {
-    done("error", "Помилка");
-    setStatus("#settingsAdminKeyStatus", "ERROR", error.message);
-    showToast(`Не вдалося перевірити код доступу: ${error.message}`, "error");
-  }
-}
-
-async function refreshPipelineStatus() {
-  try {
-    const status = await api(`/api/pipeline/status${state.pipelineTaskId ? `?task_id=${encodeURIComponent(state.pipelineTaskId)}` : ""}`);
-    state.pipelineStatus = status;
-    renderPipeline();
-  } catch (error) {
-    setStatus("#workflowStatus", "ERROR", error.message);
-  }
+function clearPrivateState() {
+  state.settings = null;
+  state.sources = [];
+  state.keywords = [];
+  state.news = [];
+  state.posts = [];
+  state.errorLogs = [];
+  state.pipelineStatus = null;
 }
 
 function bindEvents() {
@@ -1731,200 +1814,174 @@ function bindEvents() {
 
   $("#telegramChannelLinkTop")?.addEventListener("click", (event) => {
     const node = event.currentTarget;
-    if (node instanceof HTMLAnchorElement && node.getAttribute("aria-disabled") === "true") {
+    if (node instanceof HTMLAnchorElement && node.dataset.openSection) {
       event.preventDefault();
-      showToast($("#telegramConnectionReason")?.textContent || "Telegram-канал не підключено", "warn");
-    } else if (node instanceof HTMLAnchorElement && node.dataset.openSection) {
-      event.preventDefault();
+      openSection(node.dataset.openSection);
     }
   });
 
-  $("#openSourceModalBtn")?.addEventListener("click", openSourceModal);
-  $("#sourcesStatus")?.addEventListener("click", openSourceModal);
-  $("#sourcesCount")?.addEventListener("click", openSourceModal);
-  $("#openAiTestBtn")?.addEventListener("click", () => {
-    const textarea = document.querySelector('#aiModal textarea[name="text"]');
-    if (textarea instanceof HTMLTextAreaElement && !normalize(textarea.value)) {
-      textarea.value =
-        "Сьогодні OpenAI анонсувала оновлення свого API, а Telegram-канал з AI-новинами опублікував короткий огляд змін. Потрібен лаконічний Telegram-пост українською мовою з емодзі та CTA.";
-    }
-    openDialog("#aiModal");
-  });
-  $("#openPipelineModalBtn")?.addEventListener("click", () => openDialog("#pipelineModal"));
-  $("#pausePipelineBtn")?.addEventListener("click", pausePipeline);
-
+  $("#openSourceModalBtn")?.addEventListener("click", () => openSourceModal());
+  $("#sourcesStatus")?.addEventListener("click", () => openSourceModal());
+  $("#sourcesCount")?.addEventListener("click", () => openSourceModal());
+  $("#startPipelineBtn")?.addEventListener("click", startPipeline);
+  $("#stopPipelineBtn")?.addEventListener("click", stopPipeline);
+  $("#parseNewsBtn")?.addEventListener("click", startPipeline);
+  $("#generatePostsBtn")?.addEventListener("click", generateLatestPost);
+  $("#publishPendingBtn")?.addEventListener("click", publishPendingPost);
   $("#refreshBtn")?.addEventListener("click", async () => {
-    const done = withButtonState($("#refreshBtn"), "Оновлюю...");
+    const done = withButtonState($("#refreshBtn"), "Refreshing...");
     try {
       await refreshAll();
-      if (hasAdminKey()) {
-        done("success", "Оновлено");
-        setText("#panelStatusNote", "Панель оновлено. Усі доступні дані синхронізовані.");
-        showToast("Панель оновлено", "ok");
-      } else {
-        done("warn", "Частково");
-        setText("#panelStatusNote", "Панель оновлено частково. Для джерел, правил і постів потрібен код доступу.");
-        showToast("Панель оновлено частково: потрібен код доступу для приватних блоків.", "warn");
-      }
+      done("success", "Refreshed");
+      showToast("Panel refreshed", "ok");
     } catch (error) {
-      done("error", "Не оновлено");
-      setText("#panelStatusNote", `Панель не оновилась: ${error.message}`);
-      showToast(`Панель не оновилась: ${error.message}`, "error");
-      setStatus("#settingsAdminKeyStatus", "ERROR", error.message);
+      done("error", "Error");
+      showToast(`Refresh failed: ${error.message}`, "error");
     }
   });
-  $("#saveKeyBtn")?.addEventListener("click", () => saveAdminKey());
-  $("#clearKeyBtn")?.addEventListener("click", clearAdminKey);
-  $("#showTelegramEnvBtn")?.addEventListener("click", toggleTelegramEnvBox);
-  $("#copyTelegramEnvLinesBtn")?.addEventListener("click", copyTelegramEnvLines);
-  $("#checkTelegramBtn")?.addEventListener("click", checkTelegramConnection);
   $("#verifyOpenaiBtn")?.addEventListener("click", verifyOpenAI);
-  $("#runPipelineBtn")?.addEventListener("click", startPipeline);
-  $("#pipelineGoToOverviewBtn")?.addEventListener("click", () => openSection("overviewSection"));
-  $("#pipelineModalGoToOverviewBtn")?.addEventListener("click", () => openSection("overviewSection"));
-  $("#checkDeliveryBtn")?.addEventListener("click", async () => {
-    const done = withButtonState($("#checkDeliveryBtn"), "Перевіряю...");
-    try {
-      await refreshAll();
-      done("success", "Оновлено");
-      openSection("overviewSection");
-      showToast("Доставку перевірено", "ok");
-    } catch (error) {
-      done("error", "Помилка");
-      showToast(`Не вдалося оновити доставку: ${error.message}`, "error");
-    }
-  });
-  $("#autoPublishToggle")?.addEventListener("change", toggleAutoPublish);
-
-  $("#sourceTabSite")?.addEventListener("click", () => {
-    persistSourceTab("site");
-    renderSourceTabs();
-  });
-  $("#sourceTabTg")?.addEventListener("click", () => {
-    persistSourceTab("tg");
-    renderSourceTabs();
-  });
+  $("#checkTelegramBtn")?.addEventListener("click", checkTelegramConnection);
+  $("#saveSettingsBtn")?.addEventListener("click", saveSettings);
 
   $("#closeSourceModalBtn")?.addEventListener("click", () => closeDialog("#sourceModal"));
-  $("#closePipelineModalBtn")?.addEventListener("click", () => closeDialog("#pipelineModal"));
-  $("#closeAiModalBtn")?.addEventListener("click", () => closeDialog("#aiModal"));
-
-  $("#topicForm")?.addEventListener("submit", (event) => saveTopic(event));
-  $("#sourceForm")?.addEventListener("submit", (event) => createSource(event));
-  $("#generateForm")?.addEventListener("submit", (event) => testAi(event));
-  $("#startPipelineFromSourcesBtn")?.addEventListener("click", startPipeline);
-  $("#searchNewsBtn")?.addEventListener("click", () => renderNews());
-  $("#saveSearchTemplateBtn")?.addEventListener("click", saveSearchTemplate);
-  $("#refreshPostsBtn")?.addEventListener("click", async () => {
-    const done = withButtonState($("#refreshPostsBtn"), "Оновлюю...");
-    try {
-      await loadPrivateData();
-      done("success", "Оновлено");
-      showToast("Список публікацій оновлено", "ok");
-    } catch (error) {
-      done("error", "Помилка");
-      showToast(`Не вдалося оновити список публікацій: ${error.message}`, "error");
-    }
+  $("#closePostModalBtn")?.addEventListener("click", () => {
+    state.selectedPostId = "";
+    closeDialog("#postModal");
   });
-  $("#searchExampleSelect")?.addEventListener("change", (event) => setSearchExample(event.target.value));
-  $("#topicExampleSelect")?.addEventListener("change", (event) => applyTopicTemplate(event.target.value));
-  $("#postStyleSelect")?.addEventListener("change", syncAiPromptPreview);
+  $("#sourceForm")?.addEventListener("submit", submitSourceForm);
+  $("#keywordForm")?.addEventListener("submit", addKeyword);
 
-  document.body.addEventListener("click", (event) => {
-    const target = event.target.closest("button, a");
+  $("#sourceType")?.addEventListener("change", renderSourceModalState);
+  $("#sourceEnabled")?.addEventListener("change", renderSourceModalState);
+  $("#sourceTemplateSearch")?.addEventListener("input", (event) => {
+    state.sourceTemplateQuery = event.target.value;
+    writeJson(SOURCE_TEMPLATE_QUERY_KEY, state.sourceTemplateQuery);
+    renderSourceTemplates();
+  });
+
+  $("#apiKey")?.addEventListener("input", () => {
+    syncDraftFromInputs();
+    renderSettings();
+  });
+  ["#openaiApiKeyInput", "#telegramApiIdInput", "#telegramApiHashInput", "#telegramChannelInput", "#parsingIntervalInput", "#aiGenerationIntervalInput", "#publishingIntervalInput"].forEach((selector) => {
+    $(selector)?.addEventListener("input", syncDraftFromInputs);
+  });
+  $("#languageSelect")?.addEventListener("change", () => {
+    syncDraftFromInputs();
+    renderFilters();
+    renderDashboard();
+  });
+  $("#duplicateDetectionToggle")?.addEventListener("change", () => {
+    syncDraftFromInputs();
+    renderFilters();
+    renderDashboard();
+  });
+  $("#sourceFilteringToggle")?.addEventListener("change", () => {
+    syncDraftFromInputs();
+    renderFilters();
+    renderDashboard();
+  });
+  $("#autoPublishToggle")?.addEventListener("change", () => {
+    syncDraftFromInputs();
+    renderSettings();
+  });
+
+  $("#postModalGeneratedText")?.addEventListener("input", () => {
+    // Keep the current text in the textarea only. The publish button will read it directly.
+  });
+
+  $("#regeneratePostBtn")?.addEventListener("click", async () => {
+    if (!state.selectedPostId) return;
+    await regeneratePost(state.selectedPostId);
+  });
+  $("#publishPostBtn")?.addEventListener("click", async () => {
+    if (!state.selectedPostId) return;
+    const text = $("#postModalGeneratedText")?.value || "";
+    await publishPost(state.selectedPostId, text);
+  });
+  $("#deletePostBtn")?.addEventListener("click", async () => {
+    if (!state.selectedPostId) return;
+    await deletePost(state.selectedPostId);
+  });
+
+  document.body.addEventListener("click", async (event) => {
+    const target = event.target.closest("button, a, tr");
     if (!target) return;
 
     if (target.dataset.openSection) {
+      event.preventDefault();
       openSection(target.dataset.openSection);
       return;
     }
 
-    if (target.dataset.openDialog) {
-      openDialog(`#${target.dataset.openDialog}`);
-      return;
-    }
-
-    if (target.dataset.topicTemplate) return applyTopicTemplate(target.dataset.topicTemplate);
-
-    if (target.dataset.pipelineStep) {
-      state.pipelineStepFocus = target.dataset.pipelineStep;
-      renderPipeline();
-      return;
-    }
-
     if (target.dataset.useSourceSuggestion) {
-      const index = Number(target.dataset.useSourceSuggestion);
       const type = target.dataset.suggestionType || "site";
-      return useSourceSuggestion(index, type, target).catch((error) => setStatus("#sourceSaveStatus", "ERROR", error.message));
-    }
-
-    if (target.dataset.saveSourceExample) {
-      return saveSourceToExamples(target.dataset.saveSourceExample);
-    }
-
-    if (target.dataset.deleteTopic) {
-      return removeTopic(target.dataset.deleteTopic).catch((error) => setStatus("#topicSaveStatus", "ERROR", error.message));
+      const index = Number(target.dataset.useSourceSuggestion);
+      const items = mergedSourceSuggestions(type);
+      const suggestion = items[index];
+      if (suggestion) fillSourceFormFromSuggestion(suggestion, type);
+      return;
     }
 
     if (target.dataset.editSource) {
       const source = state.sources.find((item) => item.id === target.dataset.editSource);
-      if (!source) return;
-      const form = $("#sourceForm");
-      if (!form) return;
-      state.sourceTab = source.type;
-      renderSourceTabs();
-      form.name.value = source.name;
-      form.url.value = source.url;
-      form.topic_id.value = source.topic_id || "";
-      form.scrollIntoView({ behavior: "smooth", block: "center" });
+      if (source) openSourceModal({ source });
       return;
     }
 
     if (target.dataset.deleteSource) {
-      return removeSource(target.dataset.deleteSource).catch((error) => setStatus("#sourceSaveStatus", "ERROR", error.message));
-    }
-
-    if (target.dataset.improveAi) return improveWithAI(target.dataset.improveAi, target);
-    if (target.dataset.publishSite) return publishNews(target.dataset.publishSite, `/api/news/${target.dataset.publishSite}/publish-site`, target);
-    if (target.dataset.publishTelegram) return publishNews(target.dataset.publishTelegram, `/api/news/${target.dataset.publishTelegram}/publish-telegram`, target);
-    if (target.dataset.togglePost) {
-      const postId = target.dataset.togglePost;
-      const details = document.querySelectorAll(`[id="postDetails-${postId}"], [id="publishedPostDetails-${postId}"]`);
-      details.forEach((node) => {
-        if (node instanceof HTMLElement) {
-          node.hidden = !node.hidden;
-          if (!node.hidden) {
-            node.scrollIntoView({ behavior: "smooth", block: "nearest" });
-            const textarea = node.querySelector("textarea");
-            textarea?.focus();
-          }
-        }
-      });
+      await deleteSource(target.dataset.deleteSource).catch((error) => showToast(`Could not delete source: ${error.message}`, "error"));
       return;
     }
 
-    if (target.dataset.focusPost) {
-      const textarea = $(`[data-post-text="${target.dataset.focusPost}"]`);
-      textarea?.focus();
+    if (target.dataset.deleteKeyword) {
+      await deleteKeyword(target.dataset.deleteKeyword).catch((error) => showToast(`Could not delete keyword: ${error.message}`, "error"));
       return;
     }
 
-    if (target.dataset.confirmPost) return approvePost(target.dataset.confirmPost, target);
-    if (target.dataset.deletePost) return removePost(target.dataset.deletePost).catch((error) => setStatus("#workflowStatus", "ERROR", error.message));
-    if (target.dataset.applySearch) return applySearchTemplate(Number(target.dataset.applySearch));
+    if (target.dataset.openPostId) {
+      openPostModal(target.dataset.openPostId);
+      return;
+    }
+
+    if (target.closest("tr") && target.closest("#postsTableBody")) {
+      const row = target.closest("tr[data-open-post-id]");
+      if (row) {
+        openPostModal(row.dataset.openPostId);
+        return;
+      }
+    }
   });
+
+  document.body.addEventListener("change", async (event) => {
+    const target = event.target;
+    if (!(target instanceof HTMLElement)) return;
+
+    if (target.matches("[data-toggle-source]")) {
+      await toggleSourceEnabled(target.dataset.toggleSource, target.checked).catch((error) => showToast(`Could not update source: ${error.message}`, "error"));
+    }
+  });
+}
+
+function renderAccessNoteIfNeeded() {
+  if (!hasAdminKey()) {
+    setText("#panelStatusNote", "Add the admin access code in Settings to unlock private data and the guided workflow.");
+  }
 }
 
 async function boot() {
   bindEvents();
-  renderAdminState();
-  renderSourceTabs();
-  renderSavedSearches();
-  syncAiPromptPreview();
+  closeAllDialogs();
+  closeAllDetails();
+  applySettingsFromDraftToInputs();
+  renderAccessNoteIfNeeded();
+  openSection("dashboardSection", { scroll: false });
   await refreshAll();
 }
 
 boot().catch((error) => {
   setStatus("#settingsAdminKeyStatus", "ERROR", error.message);
-  setStatus("#workflowStatus", "ERROR", error.message);
+  setStatus("#pipelineStatusBadge", "ERROR", "Error");
+  setText("#pipelineStatusMessage", error.message);
+  showToast(error.message, "error");
 });
