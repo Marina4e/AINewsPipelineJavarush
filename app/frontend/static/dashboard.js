@@ -96,6 +96,7 @@ const state = {
   telegramCheckResult: null,
   sources: [],
   sourceSuggestions: [],
+  topics: [],
   keywords: [],
   news: [],
   posts: [],
@@ -103,6 +104,7 @@ const state = {
   pipelineStatus: null,
   pipelineTaskId: sessionStorage.getItem("pipelineTaskId") || "",
   pipelineStepFocus: "",
+  postStatusFilter: "",
   selectedPostId: "",
   sourceTemplateQuery: readJson(SOURCE_TEMPLATE_QUERY_KEY, ""),
   settingsDraft: loadSettingsDraft(),
@@ -451,6 +453,51 @@ function sourceStatusLabel(source) {
   return "Disabled";
 }
 
+function slugifyText(value) {
+  return normalize(value).toLowerCase().replace(/\s+/g, "-");
+}
+
+function topicById(topicId) {
+  return state.topics.find((item) => item.id === topicId) || null;
+}
+
+function topicNameById(topicId) {
+  return topicById(topicId)?.name || "Global";
+}
+
+function topicSlugById(topicId) {
+  return topicById(topicId)?.slug || "";
+}
+
+function topicIdBySlug(slug) {
+  const target = normalize(slug).toLowerCase();
+  if (!target) return "";
+  return topicByIdList().find((item) => normalize(item.slug).toLowerCase() === target)?.id || "";
+}
+
+function topicByIdList() {
+  return state.topics;
+}
+
+function renderTopicSelectOptions(selector, selectedValue = "", placeholder = "Global / no theme") {
+  const node = $(selector);
+  if (!node) return;
+  const current = normalize(selectedValue);
+  const options = [
+    `<option value="">${escapeHtml(placeholder)}</option>`,
+    ...state.topics.map(
+      (topic) =>
+        `<option value="${escapeHtml(topic.id)}"${topic.id === current ? " selected" : ""}>${escapeHtml(topic.name)}</option>`
+    ),
+  ];
+  node.innerHTML = options.join("");
+  if (current) {
+    node.value = current;
+  } else {
+    node.value = "";
+  }
+}
+
 function postStatusInfo(status) {
   const map = {
     new: { label: "New", tone: "run" },
@@ -487,12 +534,74 @@ function translateStageLabel(value) {
 function translateStageState(value) {
   const map = {
     pending: "waiting",
-    running: "running",
+    running: "active",
     completed: "done",
-    failed: "error",
+    failed: "failed",
     stopped: "stopped",
   };
   return map[value] || value || "";
+}
+
+function statusExplanation(value) {
+  const map = {
+    Ready: "Ready means the dashboard can start a new run, but no collection is active right now.",
+    Running: "Running means Celery is collecting sources, filtering news, or queueing AI/publish tasks.",
+    Stopped: "Stopped means no main collection task is running. If the last run was fast, it may have simply found no new news.",
+    Done: "Done means the main collection task finished. AI generation and publishing can still be separate queued tasks.",
+    Error: "Error means the task failed. Check Failed Tasks, source errors, and logs.",
+  };
+  return map[value] || map.Ready;
+}
+
+function stageExplanation(stageKey, stageState) {
+  const descriptions = {
+    "Pipeline Started": "prepares the run",
+    "RSS Processing": "checks website feeds",
+    "Telegram Processing": "checks channels",
+    "AI Processing": "applies filters",
+    "Post Generation": "queues AI drafts",
+    Publishing: "queues Telegram sends",
+    Completed: "main run finished",
+  };
+  if (stageState === "pending") return descriptions[stageKey] || "waiting for its turn";
+  if (stageState === "running") return descriptions[stageKey] || "running now";
+  if (stageState === "completed") return "completed";
+  if (stageState === "stopped") return "stopped here";
+  if (stageState === "failed") return "failed here";
+  return descriptions[stageKey] || "";
+}
+
+function pipelineOutcomeMessage(meta, context) {
+  if (context.running) {
+    return `Running: ${translateStageLabel(meta.stage_label || meta.stage_key || "Pipeline Started")}. Watch the live feed below for active changes.`;
+  }
+  if (context.failed) {
+    return explainErrorBody(context.status.task_result || context.status.task_meta, "Pipeline finished with an error");
+  }
+  if (context.stopped) {
+    return "Pipeline stopped. Stop works only while the main collection task is still running.";
+  }
+  if (context.status.task_state === "SUCCESS") {
+    const newItems = Number(meta.new_items || 0);
+    const queued = Number(meta.queued_for_ai || 0);
+    const errors = Number(meta.errors || 0);
+    if (!newItems && !queued && !errors) {
+      return "Pipeline finished quickly: no new news was found, so there was nothing to generate or publish.";
+    }
+    return `Pipeline finished: ${newItems} new, ${queued} queued for AI, ${errors} failed source checks.`;
+  }
+  return "Ready means sources and settings can be checked, but no collection is running yet.";
+}
+
+function pipelineToastMessage(status, stopped) {
+  const meta = status.task_result && Object.keys(status.task_result).length ? status.task_result : status.task_meta || {};
+  if (stopped) return "Pipeline stopped. There may be no need to stop it if the run already finished.";
+  if (status.task_state === "FAILURE") return "Pipeline finished with an error. Check Failed Tasks and source errors.";
+  const newItems = Number(meta.new_items || 0);
+  const queued = Number(meta.queued_for_ai || 0);
+  const errors = Number(meta.errors || 0);
+  if (!newItems && !queued && !errors) return "Pipeline completed quickly: no new news was found, so nothing was generated.";
+  return `Pipeline completed: ${newItems} new, ${queued} queued for AI, ${errors} failed.`;
 }
 
 function pipelineContext() {
@@ -581,7 +690,7 @@ function mergedSourceSuggestions(type) {
   return merged;
 }
 
-function renderSuggestionCard(item, index, type) {
+function renderSuggestionCard(item, index, type, locked = false) {
   const typeLabel = sourceTypeLabel(type);
   return `
     <article class="template-card">
@@ -594,7 +703,7 @@ function renderSuggestionCard(item, index, type) {
       </div>
       <div class="template-desc">${escapeHtml(item.description || "")}</div>
       <div class="template-actions">
-        <button type="button" class="secondary" data-use-source-suggestion="${index}" data-suggestion-type="${type}">Use template</button>
+        <button type="button" class="secondary" data-use-source-suggestion="${index}" data-suggestion-type="${type}" ${locked ? "disabled" : ""}>Use template</button>
       </div>
     </article>`;
 }
@@ -604,9 +713,12 @@ function renderSourceTemplates() {
   if (search && search.value !== state.sourceTemplateQuery) {
     search.value = state.sourceTemplateQuery;
   }
+  const locked = !hasAdminKey();
   const renderGroup = (selectors, type, emptyText) => {
     const items = mergedSourceSuggestions(type);
-    const html = items.map((item, index) => renderSuggestionCard(item, index, type)).join("") || `<div class="empty-state">${escapeHtml(emptyText)}</div>`;
+    const html =
+      items.map((item, index) => renderSuggestionCard(item, index, type, locked)).join("") ||
+      `<div class="empty-state">${escapeHtml(emptyText)}</div>`;
     selectors.forEach((selector) => {
       const node = $(selector);
       if (node) node.innerHTML = html;
@@ -625,13 +737,22 @@ function renderSourceModalState() {
   const title = $("#sourceModalTitle");
   const submit = $("#sourceSubmitBtn");
   const hint = $("#sourceUrlHint");
-  if (title) title.textContent = mode === "edit" ? "Edit Source" : "Add Source";
-  if (submit) submit.textContent = mode === "edit" ? "Save" : "Save";
+  const themeSelect = $("#sourceThemeSelect");
+  const selectedTopic = normalize(themeSelect?.dataset.selectedValue || themeSelect?.value || "");
+
+  renderTopicSelectOptions("#sourceThemeSelect", selectedTopic);
+  if (themeSelect) {
+    themeSelect.disabled = !hasAdminKey();
+    delete themeSelect.dataset.selectedValue;
+  }
+
+  if (title) title.textContent = mode === "edit" ? "Edit source" : "Add source (manual)";
+  if (submit) submit.textContent = mode === "edit" ? "Update source" : "Save source";
   if (hint) {
     hint.textContent =
       type === "tg"
-        ? "For Telegram, use @username or a t.me link. The URL will be normalized to HTTPS."
-        : "For RSS, use the full website feed URL.";
+        ? "For Telegram, use @username or a t.me link. Pick a theme if this channel should feed theme-scoped keywords."
+        : "For RSS, use the full feed URL. Pick a theme if this website should feed theme-scoped keywords.";
   }
   const enabled = $("#sourceEnabled");
   if (enabled && !enabled.checked) {
@@ -650,13 +771,16 @@ function openSourceModal({ type = "site", source = null } = {}) {
   const nameField = $("#sourceName");
   const urlField = $("#sourceUrl");
   const enabledField = $("#sourceEnabled");
+  const themeField = $("#sourceThemeSelect");
 
   if (typeField) typeField.value = source?.type || type || "site";
   if (nameField) nameField.value = source?.name || "";
   if (urlField) urlField.value = source?.url || "";
   if (enabledField) enabledField.checked = source ? Boolean(source.enabled) : true;
+  if (themeField) themeField.dataset.selectedValue = source?.topic_id || "";
 
   renderSourceModalState();
+  setStatus("#sourceSaveStatus", "WAIT", source ? "Edit the source and save changes." : "Ready to save the source.");
   openDialog("#sourceModal");
   window.requestAnimationFrame(() => {
     nameField?.focus();
@@ -672,11 +796,14 @@ function fillSourceFormFromSuggestion(suggestion, type) {
   const nameField = $("#sourceName");
   const urlField = $("#sourceUrl");
   const enabledField = $("#sourceEnabled");
+  const themeField = $("#sourceThemeSelect");
   if (typeField) typeField.value = type;
   if (nameField) nameField.value = suggestion.name;
   if (urlField) urlField.value = normalizeSourceUrl(type, suggestion.url);
   if (enabledField) enabledField.checked = true;
+  if (themeField) themeField.dataset.selectedValue = topicIdBySlug(suggestion.topic_slug) || "";
   renderSourceModalState();
+  setStatus("#sourceSaveStatus", "WAIT", "Ready to save the source.");
   openDialog("#sourceModal");
   window.requestAnimationFrame(() => {
     nameField?.focus();
@@ -686,7 +813,15 @@ function fillSourceFormFromSuggestion(suggestion, type) {
 function renderSourceRow(source) {
   const infoTone = sourceTone(source);
   const statusBadge = source.enabled ? "Enabled" : "Disabled";
-  const note = source.last_error ? `Last error: ${source.last_error}` : source.enabled ? "Ready for launch" : "Turned off";
+  const themeName = topicNameById(source.topic_id);
+  const themeSlug = topicSlugById(source.topic_id);
+  const note = source.last_error
+    ? `Last error: ${source.last_error}`
+    : source.enabled
+      ? source.topic_id
+        ? `Ready for launch under ${themeName}`
+        : "Ready for launch"
+      : "Turned off";
   const href = sourceHref(source.url);
   return `
     <tr data-source-id="${escapeHtml(source.id)}">
@@ -696,6 +831,10 @@ function renderSourceRow(source) {
       </td>
       <td data-label="Type">
         <span class="badge ${infoTone === "error" ? "badge--error" : "badge--ok"}">${escapeHtml(sourceTypeLabel(source.type))}</span>
+      </td>
+      <td data-label="Theme">
+        <span class="badge ${source.topic_id ? "badge--ok" : "badge--wait"}">${escapeHtml(themeName)}</span>
+        <div class="row-subtle">${escapeHtml(source.topic_id ? themeSlug : "Global source")}</div>
       </td>
       <td data-label="Status">
         <div class="source-status">
@@ -717,6 +856,24 @@ function renderSourceRow(source) {
     </tr>`;
 }
 
+function renderThemeRow(topic) {
+  const sourceCount = state.sources.filter((item) => item.topic_id === topic.id).length;
+  const keywordCount = state.keywords.filter((item) => item.topic_id === topic.id).length;
+  return `
+    <tr>
+      <td data-label="Theme">
+        <div class="row-title">${escapeHtml(topic.name)}</div>
+        <div class="row-subtle">${escapeHtml(topic.slug)}</div>
+      </td>
+      <td data-label="Sources">
+        <span class="badge badge--ok">${sourceCount}</span>
+      </td>
+      <td data-label="Keywords">
+        <span class="badge badge--wait">${keywordCount}</span>
+      </td>
+    </tr>`;
+}
+
 function renderSources() {
   const body = $("#sourcesTableBody");
   const empty = $("#sourcesEmptyState");
@@ -726,17 +883,15 @@ function renderSources() {
   const locked = !hasAdminKey();
 
   const addSourceBtn = $("#openSourceModalBtn");
-  const sourcesStatusBtn = $("#sourcesStatus");
-  const sourcesCountBtn = $("#sourcesCount");
+  const manageSourcesBtn = $("#manageSourcesBtn");
   if (addSourceBtn) addSourceBtn.disabled = locked;
-  if (sourcesStatusBtn) sourcesStatusBtn.disabled = locked;
-  if (sourcesCountBtn) sourcesCountBtn.disabled = locked;
+  if (manageSourcesBtn) manageSourcesBtn.disabled = locked;
 
   if (body) {
     if (locked) {
-      renderPlaceholder("#sourcesTableBody", "Enter the admin access code to manage sources.", 4);
+      renderPlaceholder("#sourcesTableBody", "Enter the admin access code to manage sources.", 5);
     } else if (!total) {
-      renderPlaceholder("#sourcesTableBody", "No sources added yet. Use Add Source to unlock the workflow.", 4);
+      renderPlaceholder("#sourcesTableBody", "No sources added yet. Use Add source (manual) or a ready template to unlock the workflow.", 5);
     } else {
       body.innerHTML = state.sources.map(renderSourceRow).join("");
     }
@@ -769,24 +924,45 @@ function renderSources() {
   renderSourceModalState();
 }
 
+function renderThemes() {
+  const body = $("#themesTableBody");
+  if (!body) return;
+  if (!hasAdminKey()) {
+    renderPlaceholder("#themesTableBody", "Enter the admin access code to manage themes.", 3);
+    return;
+  }
+  if (!state.topics.length) {
+    renderPlaceholder("#themesTableBody", "No themes yet. Add the first theme to group sources and keywords.", 3);
+    return;
+  }
+
+  body.innerHTML = state.topics.map(renderThemeRow).join("");
+}
+
 function renderKeywords() {
   const body = $("#keywordsTableBody");
   if (!body) return;
   if (!hasAdminKey()) {
-    renderPlaceholder("#keywordsTableBody", "Enter the admin access code to manage keywords.", 2);
+    renderPlaceholder("#keywordsTableBody", "Enter the admin access code to manage keywords.", 3);
     return;
   }
   if (!state.keywords.length) {
-    renderPlaceholder("#keywordsTableBody", "No keywords yet. Add the first keyword to guide filtering.", 2);
+    renderPlaceholder("#keywordsTableBody", "No keywords yet. Add the first keyword to guide filtering.", 3);
     return;
   }
 
   body.innerHTML = state.keywords
     .map((keyword) => {
+      const themeName = topicNameById(keyword.topic_id);
+      const themeSlug = topicSlugById(keyword.topic_id);
       return `
         <tr>
           <td data-label="Keyword">
             <span class="badge badge--ok">${escapeHtml(keyword.word)}</span>
+          </td>
+          <td data-label="Theme">
+            <span class="badge ${keyword.topic_id ? "badge--ok" : "badge--wait"}">${escapeHtml(themeName)}</span>
+            <div class="row-subtle">${escapeHtml(keyword.topic_id ? themeSlug : "Global keyword")}</div>
           </td>
           <td data-label="Action">
             <div class="row-actions">
@@ -803,12 +979,23 @@ function renderFilters() {
   const language = $("#languageSelect");
   const duplicate = $("#duplicateDetectionToggle");
   const sourceFiltering = $("#sourceFilteringToggle");
+  const addThemeBtn = $("#addThemeBtn");
+  const themeInput = $("#themeInput");
   const addKeywordBtn = $("#addKeywordBtn");
+  const keywordInput = $("#keywordInput");
+  const keywordThemeSelect = $("#keywordThemeSelect");
 
   if (language) language.value = draft.language || "Ukrainian";
   if (duplicate) duplicate.checked = Boolean(draft.duplicateDetection);
   if (sourceFiltering) sourceFiltering.checked = Boolean(draft.sourceFiltering);
+  if (addThemeBtn) addThemeBtn.disabled = !hasAdminKey();
+  if (themeInput) themeInput.disabled = !hasAdminKey();
   if (addKeywordBtn) addKeywordBtn.disabled = !hasAdminKey();
+  if (keywordInput) keywordInput.disabled = !hasAdminKey();
+  if (keywordThemeSelect) keywordThemeSelect.disabled = !hasAdminKey();
+
+  renderTopicSelectOptions("#keywordThemeSelect", normalize(keywordThemeSelect?.value || ""));
+  renderThemes();
 
   renderKeywords();
 }
@@ -857,10 +1044,18 @@ function renderPosts() {
     return;
   }
 
-  if (!state.posts.length) {
-    renderPlaceholder("#postsTableBody", "No posts yet. Parse sources to create the first draft.", 4);
+  const filteredPosts = state.postStatusFilter
+    ? state.posts.filter((post) => {
+        if (state.postStatusFilter === "generated") return post.status === "generated" || post.status === "pending_approval";
+        if (state.postStatusFilter === "failed") return post.status === "failed" || post.status === "rejected" || post.error;
+        return post.status === state.postStatusFilter;
+      })
+    : state.posts;
+
+  if (!filteredPosts.length) {
+    renderPlaceholder("#postsTableBody", state.postStatusFilter ? "No posts match this status filter." : "No posts yet. Parse sources to create the first draft.", 4);
   } else {
-    const sorted = [...state.posts].sort((left, right) => new Date(right.created_at) - new Date(left.created_at));
+    const sorted = [...filteredPosts].sort((left, right) => new Date(right.created_at) - new Date(left.created_at));
     body.innerHTML = sorted.map(renderPostRow).join("");
   }
 
@@ -868,10 +1063,11 @@ function renderPosts() {
   setHtml(
     "#postsSummary",
     [
-      `<div class="status status--run">New: ${counts.new}</div>`,
-      `<div class="status status--wait">Generated: ${counts.generated}</div>`,
-      `<div class="status status--ok">Published: ${counts.published}</div>`,
-      `<div class="status status--error">Failed: ${counts.failed}</div>`,
+      `<button type="button" class="status status--run" data-post-filter="new">New: ${counts.new}</button>`,
+      `<button type="button" class="status status--wait" data-post-filter="generated">Generated: ${counts.generated}</button>`,
+      `<button type="button" class="status status--ok" data-post-filter="published">Published: ${counts.published}</button>`,
+      `<button type="button" class="status status--error" data-post-filter="failed">Failed: ${counts.failed}</button>`,
+      state.postStatusFilter ? `<button type="button" class="status slim" data-post-filter="">Show all</button>` : "",
     ].join("")
   );
 }
@@ -893,6 +1089,7 @@ function renderPipelineStepper() {
         <div class="step ${tone} ${isCurrent ? "is-active" : ""}">
           <span class="step-label">${escapeHtml(step.label)}</span>
           <span class="step-state">${escapeHtml(translateStageState(stageState))}</span>
+          <span class="step-state">${escapeHtml(stageExplanation(step.key, stageState))}</span>
         </div>`;
     }).join("")
   );
@@ -903,21 +1100,16 @@ function renderPipelineStepper() {
   if (startBtn) startBtn.disabled = buttonLocked || context.running;
   if (stopBtn) stopBtn.disabled = buttonLocked || !context.running;
 
-  const badgeText = context.running ? "Running" : context.failed ? "Error" : "Stopped";
+  const badgeText = context.running ? "Running" : context.failed ? "Error" : context.status.task_state === "SUCCESS" ? "Done" : "Ready";
   const badgeToken = context.running ? "RUN" : context.failed ? "ERROR" : "WAIT";
   setStatus("#pipelineStatusBadge", badgeToken, badgeText);
 
-  let message = "Pipeline paused. Start it when sources are ready.";
+  let message = pipelineOutcomeMessage(meta, context);
   if (buttonLocked) {
     message = "Enter the admin access code in Settings to unlock the pipeline.";
-  } else if (context.running) {
-    message = `Running: ${translateStageLabel(meta.stage_label || meta.stage_key || "Pipeline Started")}`;
-  } else if (context.failed) {
-    message = explainErrorBody(context.status.task_result || context.status.task_meta, "Pipeline finished with an error");
-  } else if (context.stopped) {
-    message = "Pipeline stopped. Use Start Pipeline to run collection again.";
   }
   setText("#pipelineStatusMessage", message);
+  setText("#pipelineInsight", statusExplanation(badgeText));
 
   const note = [];
   if (!state.sources.length) note.push("Add at least one source to unlock the workflow.");
@@ -997,10 +1189,88 @@ function buildActivityRows() {
   return rows.sort((left, right) => right.ts - left.ts).slice(0, 20);
 }
 
+function buildLiveFeedRows() {
+  const context = pipelineContext();
+  const meta = context.meta || {};
+  const rows = [];
+  const now = Date.now();
+
+  rows.push({
+    ts: now,
+    title: context.running ? `Active stage: ${translateStageLabel(meta.stage_label || meta.stage_key || "Start")}` : "Pipeline is not actively collecting right now",
+    meta: pipelineOutcomeMessage(meta, context),
+    tone: context.running ? "run" : context.failed ? "error" : "wait",
+  });
+
+  if (meta.sources || meta.new_items || meta.duplicates || meta.queued_for_ai || meta.errors) {
+    rows.push({
+      ts: now - 1,
+      title: `Run counters: ${Number(meta.new_items || 0)} new, ${Number(meta.duplicates || 0)} duplicates, ${Number(meta.queued_for_ai || 0)} queued for AI`,
+      meta: `${Number(meta.sources || 0)} enabled sources checked, ${Number(meta.errors || 0)} source errors.`,
+      tone: Number(meta.errors || 0) ? "error" : "ok",
+    });
+  }
+
+  [...state.news].slice(0, 5).forEach((item, index) => {
+    rows.push({
+      ts: new Date(item.published_at || Date.now()).getTime() || now - (index + 2) * 60000,
+      title: item.title || "Collected news",
+      meta: `News collected from ${item.source || "unknown source"} · ${formatDate(item.published_at)}`,
+      tone: "run",
+    });
+  });
+
+  [...state.posts].slice(0, 4).forEach((post, index) => {
+    const info = postStatusInfo(post.status);
+    rows.push({
+      ts: new Date(post.created_at || post.updated_at || Date.now()).getTime() || now - (index + 8) * 60000,
+      title: post.news?.title || `Post ${post.id.slice(0, 8)}`,
+      meta: `Post status: ${info.label}. Click Posts to review generated text.`,
+      tone: info.tone,
+    });
+  });
+
+  (state.errorLogs || []).slice(-3).forEach((line, index) => {
+    rows.push({
+      ts: now - (index + 20) * 60000,
+      title: "Error log entry",
+      meta: line,
+      tone: "error",
+    });
+  });
+
+  return rows.sort((left, right) => right.ts - left.ts).slice(0, 12);
+}
+
+function renderLiveFeed() {
+  const context = pipelineContext();
+  const meta = context.meta || {};
+  const liveBadge = context.running ? "Live" : context.failed ? "Needs attention" : "Idle";
+  const liveToken = context.running ? "RUN" : context.failed ? "ERROR" : "WAIT";
+  setStatus("#pipelineLiveBadge", liveToken, liveBadge);
+  setText("#pipelineLiveSummary", pipelineOutcomeMessage(meta, context));
+
+  setHtml(
+    "#pipelineLiveFeed",
+    buildLiveFeedRows()
+      .map(
+        (row) => `
+          <div class="live-item">
+            <span class="live-dot"></span>
+            <div>
+              <div class="live-title">${escapeHtml(row.title)}</div>
+              <div class="live-meta">${escapeHtml(row.meta)}</div>
+            </div>
+            <span class="badge badge--${escapeHtml(row.tone)}">${escapeHtml(row.tone === "run" ? "active" : row.tone)}</span>
+          </div>`
+      )
+      .join("")
+  );
+}
+
 function renderDashboard() {
   const context = pipelineContext();
   const meta = context.meta || {};
-  const activeSources = state.sources.filter((item) => item.enabled && !item.last_error).length;
   const collected = meta.new_items ?? state.news.length;
   const filtered = meta.queued_for_ai ?? state.posts.filter((post) => ["generated", "pending_approval", "published"].includes(post.status)).length;
   const generated = state.posts.filter((post) => ["generated", "pending_approval", "published"].includes(post.status)).length;
@@ -1046,33 +1316,8 @@ function renderDashboard() {
   if (generateBtn) generateBtn.disabled = !hasAdminKey();
   if (publishBtn) publishBtn.disabled = !hasAdminKey();
 
-  const totalSources = state.sources.length;
-  const locked = !hasAdminKey();
-  if (locked) {
-    setStatus("#pipelineStatusBadge", "WAIT", "Stopped");
-  } else if (context.running) {
-    setStatus("#pipelineStatusBadge", "RUN", "Running");
-  } else if (context.failed) {
-    setStatus("#pipelineStatusBadge", "ERROR", "Error");
-  } else {
-    setStatus("#pipelineStatusBadge", "WAIT", "Stopped");
-  }
-
-  if (!locked) {
-    if (context.running) {
-      setText("#pipelineStatusMessage", `Running: ${translateStageLabel(meta.stage_label || meta.stage_key || "Start")}`);
-    } else if (context.failed) {
-      setText("#pipelineStatusMessage", explainErrorBody(context.status.task_result || context.status.task_meta, "Pipeline finished with an error"));
-    } else if (!totalSources) {
-      setText("#pipelineStatusMessage", "Add sources first. The pipeline becomes useful when at least one source is connected.");
-    } else if (totalSources < 3) {
-      setText("#pipelineStatusMessage", "Pipeline ready. Recommended: 3-10 sources for better filtering.");
-    } else {
-      setText("#pipelineStatusMessage", "Pipeline ready. Start it when you want to collect, filter, and publish.");
-    }
-  }
-
   renderPipelineStepper();
+  renderLiveFeed();
 }
 
 function renderOpenAIStatus() {
@@ -1170,9 +1415,10 @@ function renderSettings() {
 }
 
 function renderLockedPrivateBlocks() {
-  renderPlaceholder("#keywordsTableBody", "Enter the admin access code to manage keywords.", 2);
+  renderPlaceholder("#themesTableBody", "Enter the admin access code to manage themes.", 3);
+  renderPlaceholder("#keywordsTableBody", "Enter the admin access code to manage keywords.", 3);
   renderPlaceholder("#postsTableBody", "Enter the admin access code to view generated posts.", 4);
-  renderPlaceholder("#sourcesTableBody", "Enter the admin access code to manage sources.", 4);
+  renderPlaceholder("#sourcesTableBody", "Enter the admin access code to manage sources.", 5);
   setHtml("#postsSummary", "");
   setStatus("#sourcesStatus", "WAIT", "Sources not added yet");
   setStatus("#sourcesCount", "WAIT", "Sources added: 0");
@@ -1197,9 +1443,10 @@ async function loadPublicData() {
 }
 
 async function loadPrivateData() {
-  const [settings, sources, keywords, news, posts, logs, pipeline] = await Promise.all([
+  const [settings, sources, topics, keywords, news, posts, logs, pipeline] = await Promise.all([
     api("/api/settings"),
     api("/api/sources/"),
+    api("/api/topics/"),
     api("/api/keywords/"),
     api("/api/news/?limit=50"),
     api("/api/posts/?limit=50"),
@@ -1213,6 +1460,7 @@ async function loadPrivateData() {
     writeJson(SETTINGS_DRAFT_KEY, state.settingsDraft);
   }
   state.sources = sortByDateDesc(sources, "created_at");
+  state.topics = [...topics].sort((left, right) => String(left.name).localeCompare(String(right.name), "uk"));
   state.keywords = [...keywords].sort((left, right) => String(left.word).localeCompare(String(right.word), "uk"));
   state.news = sortByDateDesc(news, "published_at");
   state.posts = sortByDateDesc(posts, "created_at");
@@ -1237,6 +1485,7 @@ async function refreshAll() {
       await loadPrivateData();
     } catch (error) {
       state.sources = [];
+      state.topics = [];
       state.keywords = [];
       state.news = [];
       state.posts = [];
@@ -1247,6 +1496,7 @@ async function refreshAll() {
     }
   } else {
     state.sources = [];
+    state.topics = [];
     state.keywords = [];
     state.news = [];
     state.posts = [];
@@ -1367,10 +1617,7 @@ async function pollPipeline(taskId) {
           : status.task_state === "SUCCESS"
             ? "Completed"
             : state.pipelineStepFocus;
-        showToast(
-          stopped ? "Pipeline stopped" : status.task_state === "SUCCESS" ? "Pipeline completed" : "Pipeline finished with an error",
-          stopped ? "warn" : status.task_state === "SUCCESS" ? "ok" : "error"
-        );
+        showToast(pipelineToastMessage(status, stopped), stopped ? "warn" : status.task_state === "SUCCESS" ? "ok" : "error");
         state.pipelineTaskId = "";
         sessionStorage.removeItem("pipelineTaskId");
         await loadPrivateData().catch(() => null);
@@ -1385,6 +1632,56 @@ async function pollPipeline(taskId) {
   state.taskTimers.set(taskId, timer);
 }
 
+async function addTheme(event) {
+  event.preventDefault();
+  if (!hasAdminKey()) {
+    showToast("Add the admin access code in Settings to manage themes.", "warn");
+    return;
+  }
+
+  const done = withButtonState($("#addThemeBtn"), "Saving...");
+  const input = $("#themeInput");
+  const name = normalize(input?.value);
+  if (!name) {
+    done("warn", "Empty");
+    showToast("Theme cannot be empty", "warn");
+    return;
+  }
+
+  const normalizedName = name.toLowerCase();
+  const normalizedSlug = slugifyText(name);
+  const duplicate = state.topics.some((topic) => {
+    const existingName = normalize(topic.name).toLowerCase();
+    const existingSlug = slugifyText(topic.slug || topic.name);
+    return existingName === normalizedName || existingSlug === normalizedSlug;
+  });
+
+  if (duplicate) {
+    done("warn", "Duplicate");
+    showToast("Theme already exists", "warn");
+    return;
+  }
+
+  try {
+    const created = await api("/api/topics/", {
+      method: "POST",
+      body: JSON.stringify({ name }),
+    });
+    if (input) input.value = "";
+    await loadPrivateData();
+    renderAll();
+    renderTopicSelectOptions("#keywordThemeSelect", created.id);
+    done("success", "Added");
+    showToast("Theme added", "ok");
+    window.requestAnimationFrame(() => {
+      input?.focus();
+    });
+  } catch (error) {
+    done("error", "Error");
+    showToast(`Could not add theme: ${error.message}`, "error");
+  }
+}
+
 async function addKeyword(event) {
   event.preventDefault();
   if (!hasAdminKey()) {
@@ -1393,7 +1690,9 @@ async function addKeyword(event) {
   }
   const done = withButtonState($("#addKeywordBtn"), "Saving...");
   const input = $("#keywordInput");
+  const themeSelect = $("#keywordThemeSelect");
   const word = normalize(input?.value);
+  const topicId = normalize(themeSelect?.value);
   if (!word) {
     done("warn", "Empty");
     showToast("Keyword cannot be empty", "warn");
@@ -1403,13 +1702,17 @@ async function addKeyword(event) {
   try {
     await api("/api/keywords/", {
       method: "POST",
-      body: JSON.stringify({ word }),
+      body: JSON.stringify({ word, topic_id: topicId || null }),
     });
     if (input) input.value = "";
     await loadPrivateData();
     renderAll();
+    renderTopicSelectOptions("#keywordThemeSelect", topicId);
     done("success", "Added");
     showToast("Keyword added", "ok");
+    window.requestAnimationFrame(() => {
+      input?.focus();
+    });
   } catch (error) {
     done("error", "Error");
     showToast(`Could not add keyword: ${error.message}`, "error");
@@ -1442,6 +1745,7 @@ async function submitSourceForm(event) {
   const type = normalize(payload.type) === "tg" ? "tg" : "site";
   const normalizedUrl = normalizeSourceUrl(type, payload.url);
   const enabled = $("#sourceEnabled")?.checked ?? true;
+  const topicId = normalize(payload.topic_id);
 
   const duplicate = state.sources.some((item) => {
     if (mode === "edit" && item.id === sourceId) return false;
@@ -1462,7 +1766,7 @@ async function submitSourceForm(event) {
       type,
       name: payload.name,
       url: normalizedUrl,
-      topic_id: null,
+      topic_id: topicId || null,
       enabled,
     };
 
@@ -1487,20 +1791,9 @@ async function submitSourceForm(event) {
     setStatus("#sourceSaveStatus", "OK", message);
     done("success", "Saved");
     showToast(mode === "edit" ? "Source updated" : "Source added", "ok");
-
-    if (mode === "create") {
-      form.dataset.sourceId = "";
-      form.dataset.mode = "create";
-      $("#sourceName").value = "";
-      $("#sourceUrl").value = "";
-      $("#sourceEnabled").checked = true;
-      renderSourceModalState();
-      window.requestAnimationFrame(() => {
-        $("#sourceName")?.focus();
-      });
-    } else {
-      closeDialog("#sourceModal");
-    }
+    form.dataset.sourceId = "";
+    form.dataset.mode = "create";
+    closeDialog("#sourceModal");
   } catch (error) {
     done("error", "Error");
     setStatus("#sourceSaveStatus", "ERROR", error.message);
@@ -1799,6 +2092,7 @@ function applySettingsFromDraftToInputs() {
 function clearPrivateState() {
   state.settings = null;
   state.sources = [];
+  state.topics = [];
   state.keywords = [];
   state.news = [];
   state.posts = [];
@@ -1821,8 +2115,9 @@ function bindEvents() {
   });
 
   $("#openSourceModalBtn")?.addEventListener("click", () => openSourceModal());
-  $("#sourcesStatus")?.addEventListener("click", () => openSourceModal());
-  $("#sourcesCount")?.addEventListener("click", () => openSourceModal());
+  $("#manageSourcesBtn")?.addEventListener("click", () => {
+    document.getElementById("sourcesManagementPanel")?.scrollIntoView({ behavior: "smooth", block: "start" });
+  });
   $("#startPipelineBtn")?.addEventListener("click", startPipeline);
   $("#stopPipelineBtn")?.addEventListener("click", stopPipeline);
   $("#parseNewsBtn")?.addEventListener("click", startPipeline);
@@ -1849,6 +2144,7 @@ function bindEvents() {
     closeDialog("#postModal");
   });
   $("#sourceForm")?.addEventListener("submit", submitSourceForm);
+  $("#themeForm")?.addEventListener("submit", addTheme);
   $("#keywordForm")?.addEventListener("submit", addKeyword);
 
   $("#sourceType")?.addEventListener("change", renderSourceModalState);
@@ -1910,7 +2206,23 @@ function bindEvents() {
 
     if (target.dataset.openSection) {
       event.preventDefault();
+      if (Object.prototype.hasOwnProperty.call(target.dataset, "postFilter")) {
+        state.postStatusFilter = target.dataset.postFilter || "";
+      }
       openSection(target.dataset.openSection);
+      renderPosts();
+      if (target.dataset.focusPanel === "liveFeed") {
+        window.requestAnimationFrame(() => {
+          document.getElementById("pipelineLiveFeedCard")?.scrollIntoView({ behavior: "smooth", block: "center" });
+        });
+      }
+      return;
+    }
+
+    if (Object.prototype.hasOwnProperty.call(target.dataset, "postFilter")) {
+      event.preventDefault();
+      state.postStatusFilter = target.dataset.postFilter || "";
+      renderPosts();
       return;
     }
 

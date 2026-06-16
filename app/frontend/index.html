@@ -26,11 +26,11 @@
 
     <div class="app-shell">
       <aside class="sidebar" aria-label="Навігація">
-        <button class="nav-item" type="button" data-open-section="dashboardSection">📊 Dashboard</button>
+        <button class="nav-item" type="button" data-open-section="settingsSection">⚙️ Settings</button>
         <button class="nav-item" type="button" data-open-section="sourcesSection">📰 Sources</button>
         <button class="nav-item" type="button" data-open-section="filtersSection">🔍 Filters</button>
+        <button class="nav-item" type="button" data-open-section="dashboardSection">📊 Dashboards</button>
         <button class="nav-item" type="button" data-open-section="postsSection">📄 Posts</button>
-        <button class="nav-item" type="button" data-open-section="settingsSection">⚙️ Settings</button>
       </aside>
 
       <main class="workspace">
@@ -55,6 +55,7 @@
                   <button id="startPipelineBtn" class="workflow-primary" type="button">Start Pipeline</button>
                   <button id="stopPipelineBtn" class="secondary" type="button">Stop Pipeline</button>
                 </div>
+                <div id="pipelineInsight" class="pipeline-insight">Ready means sources and settings can be checked, but no collection is running yet.</div>
                 <div id="pipelineStepper" class="stepper" aria-label="Pipeline stages"></div>
               </article>
 
@@ -62,27 +63,44 @@
                 <p class="eyebrow">Statistics</p>
                 <h2>Statistics</h2>
                 <div class="stats-grid">
-                  <div class="stat-tile">
+                  <button class="stat-tile" type="button" data-open-section="dashboardSection" data-focus-panel="liveFeed">
                     <span>News Collected</span>
                     <strong id="statNewsCollected">0</strong>
-                  </div>
-                  <div class="stat-tile">
+                    <small>Open activity feed</small>
+                  </button>
+                  <button class="stat-tile" type="button" data-open-section="filtersSection">
                     <span>News Filtered</span>
                     <strong id="statNewsFiltered">0</strong>
-                  </div>
-                  <div class="stat-tile">
+                    <small>Open filters</small>
+                  </button>
+                  <button class="stat-tile" type="button" data-open-section="postsSection" data-post-filter="generated">
                     <span>Posts Generated</span>
                     <strong id="statPostsGenerated">0</strong>
-                  </div>
-                  <div class="stat-tile">
+                    <small>Show generated posts</small>
+                  </button>
+                  <button class="stat-tile" type="button" data-open-section="postsSection" data-post-filter="published">
                     <span>Posts Published</span>
                     <strong id="statPostsPublished">0</strong>
-                  </div>
-                  <div class="stat-tile">
+                    <small>Show published posts</small>
+                  </button>
+                  <button class="stat-tile" type="button" data-open-section="postsSection" data-post-filter="failed">
                     <span>Failed Tasks</span>
                     <strong id="statFailedTasks">0</strong>
-                  </div>
+                    <small>Show failed items</small>
+                  </button>
                 </div>
+              </article>
+
+              <article id="pipelineLiveFeedCard" class="dashboard-card dashboard-card--live">
+                <div class="card-head">
+                  <div>
+                    <p class="eyebrow">Pipeline Live Feed</p>
+                    <h2>What is happening now</h2>
+                  </div>
+                  <div id="pipelineLiveBadge" class="status slim">Idle</div>
+                </div>
+                <div id="pipelineLiveSummary" class="live-summary">Start Pipeline to see collection, filtering, post generation, and publishing updates here.</div>
+                <div id="pipelineLiveFeed" class="live-feed"></div>
               </article>
 
               <article class="dashboard-card dashboard-card--activity">
@@ -116,6 +134,12 @@
                   <button id="refreshBtn" class="secondary" type="button">Refresh</button>
                 </div>
                 <div id="quickActionNote" class="hint">Guided workflow: sources → filters → AI → review → publish.</div>
+                <div class="action-guide">
+                  <div><strong>Parse News</strong><span>collects fresh items from enabled RSS and Telegram sources.</span></div>
+                  <div><strong>Generate Posts</strong><span>takes the newest collected news item and queues AI text generation.</span></div>
+                  <div><strong>Publish Pending</strong><span>sends the first generated or pending post to Telegram.</span></div>
+                  <div><strong>Refresh</strong><span>reloads dashboard data, task status, posts, sources, and errors.</span></div>
+                </div>
               </article>
             </div>
           </div>
@@ -123,27 +147,58 @@
 
         <details id="sourcesSection" class="section">
           <summary>
-            <span>News Sources</span>
-            <small>website · telegram · templates</small>
+            <span>New Source</span>
+            <small>manual · templates · search results</small>
           </summary>
 
           <div class="section-body">
-            <div class="section-toolbar">
+            <div class="section-toolbar section-toolbar--sources">
               <div class="section-copy">
-                <p class="lead">Add RSS websites and Telegram channels from one simple form. Telegram links are normalized to HTTPS automatically.</p>
-                <p class="source-limits">Minimum 1 source · recommended 3-10 · maximum 20</p>
+                <p class="lead">Add a source manually or pick a ready template, then assign a theme if you want the source to feed theme-scoped keyword filters.</p>
+                <p class="source-limits">Manual source entry · RSS templates · Telegram channels</p>
               </div>
-              <div class="section-actions">
-                <button id="openSourceModalBtn" class="workflow-primary" type="button">Add Source</button>
-                <button id="sourcesStatus" class="status status-button" type="button">Sources not added yet</button>
-                <button id="sourcesCount" class="status status-button slim" type="button">Sources added: 0</button>
+              <div class="source-hero-actions">
+                <button id="openSourceModalBtn" class="workflow-primary" type="button">Add source (manual)</button>
+                <div class="source-hero-chips">
+                  <span class="badge badge--ok">Ready templates</span>
+                  <span class="badge badge--wait">Search results</span>
+                </div>
               </div>
             </div>
 
-            <article class="panel">
+            <details class="subdetails source-library" open>
+              <summary>Ready templates and search results</summary>
+              <div class="subbody">
+                <div class="template-toolbar template-toolbar--sources">
+                  <input id="sourceTemplateSearch" placeholder="Search templates or channels" autocomplete="off" />
+                </div>
+                <div class="source-accordion-stack">
+                  <details class="source-accordion">
+                    <summary>
+                      <span>RSS</span>
+                      <small>Ready templates and matching results</small>
+                    </summary>
+                    <div class="source-accordion-body">
+                      <div id="rssVisibleSuggestionsList" class="list compact"></div>
+                    </div>
+                  </details>
+                  <details class="source-accordion">
+                    <summary>
+                      <span>Telegram</span>
+                      <small>Ready templates and matching results</small>
+                    </summary>
+                    <div class="source-accordion-body">
+                      <div id="telegramVisibleSuggestionsList" class="list compact"></div>
+                    </div>
+                  </details>
+                </div>
+              </div>
+            </details>
+
+            <article id="sourcesManagementPanel" class="panel">
               <div class="panel-head">
                 <div>
-                  <p class="eyebrow">Sources</p>
+                  <p class="eyebrow">Source management</p>
                   <h2>Managed Sources</h2>
                 </div>
               </div>
@@ -153,6 +208,7 @@
                     <tr>
                       <th>Name</th>
                       <th>Type</th>
+                      <th>Theme</th>
                       <th>Status</th>
                       <th>Actions</th>
                     </tr>
@@ -165,24 +221,11 @@
               </div>
             </article>
 
-            <details class="subdetails" open>
-              <summary>Ready templates and search results</summary>
-              <div class="subbody">
-                <div class="template-toolbar">
-                  <input id="sourceTemplateSearch" placeholder="Search templates or channels" autocomplete="off" />
-                </div>
-                <div class="template-grid">
-                  <div class="template-column">
-                    <h3>RSS</h3>
-                    <div id="rssVisibleSuggestionsList" class="list compact"></div>
-                  </div>
-                  <div class="template-column">
-                    <h3>Telegram</h3>
-                    <div id="telegramVisibleSuggestionsList" class="list compact"></div>
-                  </div>
-                </div>
-              </div>
-            </details>
+            <div class="source-footer">
+              <div id="sourcesStatus" class="status status-button" role="status" aria-live="polite">Sources not added yet</div>
+              <div id="sourcesCount" class="status status-button slim" role="status" aria-live="polite">Sources added: 0</div>
+              <button id="manageSourcesBtn" class="secondary" type="button">Manage Sources</button>
+            </div>
           </div>
         </details>
 
@@ -193,12 +236,48 @@
           </summary>
 
           <div class="section-body">
+            <div class="section-toolbar section-toolbar--filters">
+              <div class="section-copy">
+                <p class="lead">Build filters from broad themes first, then narrow them with keywords. Global keywords still work alongside theme-scoped keywords.</p>
+                <p class="source-limits">Theme first · keyword second · same backend filter set</p>
+              </div>
+              <div class="filters-hero-chips">
+                <span class="badge badge--ok">Add theme</span>
+                <span class="badge badge--wait">Add keyword</span>
+              </div>
+            </div>
+
             <div class="filters-grid">
               <article class="panel">
-                <p class="eyebrow">Keywords</p>
-                <h2>Keywords</h2>
+                <p class="eyebrow">Theme</p>
+                <h2>Add theme</h2>
+                <form id="themeForm" class="stack">
+                  <input id="themeInput" name="name" placeholder="AI, Startups, Health" required autocomplete="off" />
+                  <button id="addThemeBtn" class="workflow-primary" type="submit">Add theme</button>
+                </form>
+                <div class="table-wrap">
+                  <table class="data-table">
+                    <thead>
+                      <tr>
+                        <th>Theme</th>
+                        <th>Sources</th>
+                        <th>Keywords</th>
+                      </tr>
+                    </thead>
+                    <tbody id="themesTableBody"></tbody>
+                  </table>
+                </div>
+              </article>
+
+              <article class="panel">
+                <p class="eyebrow">Keyword</p>
+                <h2>Add keyword</h2>
                 <form id="keywordForm" class="stack">
                   <input id="keywordInput" name="word" placeholder="AI, OpenAI, LLM" required autocomplete="off" />
+                  <label class="field">
+                    <span>Theme</span>
+                    <select id="keywordThemeSelect" name="topic_id"></select>
+                  </label>
                   <button id="addKeywordBtn" class="workflow-primary" type="submit">Add Keyword</button>
                 </form>
                 <div class="table-wrap">
@@ -206,6 +285,7 @@
                     <thead>
                       <tr>
                         <th>Keyword</th>
+                        <th>Theme</th>
                         <th>Action</th>
                       </tr>
                     </thead>
@@ -214,7 +294,7 @@
                 </div>
               </article>
 
-              <article class="panel">
+              <article class="panel panel--wide">
                 <p class="eyebrow">Content Filters</p>
                 <h2>Content Filters</h2>
                 <label class="field">
@@ -364,8 +444,8 @@
       <form id="sourceForm" class="modal-shell">
         <div class="modal-head">
           <div>
-            <p class="eyebrow">News Sources</p>
-            <h2 id="sourceModalTitle">Add Source</h2>
+            <p class="eyebrow">New Source</p>
+            <h2 id="sourceModalTitle">Add source (manual)</h2>
           </div>
           <button id="closeSourceModalBtn" type="button" class="secondary">Close</button>
         </div>
@@ -377,6 +457,11 @@
               <option value="site">Website</option>
               <option value="tg">Telegram</option>
             </select>
+          </label>
+
+          <label class="field">
+            <span>Theme</span>
+            <select id="sourceThemeSelect" name="topic_id"></select>
           </label>
 
           <label class="field">
@@ -396,7 +481,7 @@
             <span>Enabled</span>
           </label>
 
-          <button id="sourceSubmitBtn" class="workflow-primary" type="submit">Save</button>
+          <button id="sourceSubmitBtn" class="workflow-primary" type="submit">Save source</button>
           <div id="sourceSaveStatus" class="status slim"></div>
         </div>
       </form>
