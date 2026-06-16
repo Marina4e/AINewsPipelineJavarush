@@ -9,7 +9,7 @@
   <body class="publisher-page">
     <div id="toast" class="toast" role="status" aria-live="polite" hidden>
       <span id="toastMessage"></span>
-      <button id="toastCloseBtn" class="toast-close" type="button">Закрити</button>
+      <button id="toastCloseBtn" class="toast-close" type="button">Close</button>
     </div>
 
     <header class="topbar">
@@ -20,7 +20,7 @@
         <div id="panelStatusNote" class="panel-note">Панель готова до оновлення.</div>
       </div>
       <div class="top-actions">
-        <a id="telegramChannelLinkTop" class="link-button secondary" href="#" target="_blank" rel="noreferrer" hidden>📢 Відкрити Telegram-канал</a>
+        <a id="telegramChannelLinkTop" class="link-button secondary" href="#" target="_blank" rel="noreferrer" hidden>📢 Open Telegram Channel</a>
       </div>
     </header>
 
@@ -48,12 +48,11 @@
                     <p class="eyebrow">Pipeline Status</p>
                     <h2>Pipeline Status</h2>
                   </div>
-                  <div id="pipelineStatusBadge" class="status">Stopped</div>
+                  <button id="pipelineStatusBadge" class="status" type="button" data-open-section="dashboardSection" data-focus-panel="liveFeed">Ready</button>
                 </div>
                 <p id="pipelineStatusMessage" class="hint">Pipeline paused. Start it when sources are ready.</p>
                 <div class="button-row">
                   <button id="startPipelineBtn" class="workflow-primary" type="button">Start Pipeline</button>
-                  <button id="stopPipelineBtn" class="secondary" type="button">Stop Pipeline</button>
                 </div>
                 <div id="pipelineInsight" class="pipeline-insight">Ready means sources and settings can be checked, but no collection is running yet.</div>
                 <div id="pipelineStepper" class="stepper" aria-label="Pipeline stages"></div>
@@ -63,13 +62,13 @@
                 <p class="eyebrow">Statistics</p>
                 <h2>Statistics</h2>
                 <div class="stats-grid">
-                  <button class="stat-tile" type="button" data-open-section="dashboardSection" data-focus-panel="liveFeed">
+                  <button class="stat-tile" type="button" data-open-section="dashboardSection" data-focus-panel="newsQueue">
                     <span>News Collected</span>
                     <strong id="statNewsCollected">0</strong>
-                    <small>Open activity feed</small>
+                    <small>Open collected news</small>
                   </button>
                   <button class="stat-tile" type="button" data-open-section="filtersSection">
-                    <span>News Filtered</span>
+                    <span>Ready for Generate Post</span>
                     <strong id="statNewsFiltered">0</strong>
                     <small>Open filters</small>
                   </button>
@@ -91,16 +90,60 @@
                 </div>
               </article>
 
-              <article id="pipelineLiveFeedCard" class="dashboard-card dashboard-card--live">
+              <details id="pipelineLiveFeedCard" class="dashboard-card dashboard-card--live live-accordion" open>
+                <summary class="live-accordion-summary">
+                  <div>
+                    <p class="eyebrow">Live Activity</p>
+                    <h2>Current Pipeline Status</h2>
+                  </div>
+                  <button id="pipelineLiveBadge" class="status slim" type="button" data-open-section="dashboardSection" data-focus-panel="liveFeed">Idle</button>
+                </summary>
+                <div class="live-accordion-body">
+                  <div class="live-summary-grid">
+                    <div class="live-summary-tile">
+                      <span>Current action</span>
+                      <strong id="pipelineLiveCurrentAction">Waiting for a manual start.</strong>
+                    </div>
+                    <div class="live-summary-tile">
+                      <span>Active stage</span>
+                      <strong id="pipelineLiveActiveStage">Idle</strong>
+                    </div>
+                    <div class="live-summary-tile">
+                      <span>Last action</span>
+                      <strong id="pipelineLiveLastAction">No actions yet.</strong>
+                    </div>
+                    <div class="live-summary-tile">
+                      <span>Errors</span>
+                      <strong id="pipelineLiveErrors">No errors.</strong>
+                    </div>
+                  </div>
+                  <div id="pipelineLiveSummary" class="live-summary">Start Pipeline to see collection updates. AI generation stays manual through Generate Post.</div>
+                  <div id="pipelineLiveFeed" class="live-feed"></div>
+                </div>
+              </details>
+
+              <article id="newsQueueCard" class="dashboard-card dashboard-card--news dashboard-card--wide">
                 <div class="card-head">
                   <div>
-                    <p class="eyebrow">Pipeline Live Feed</p>
-                    <h2>What is happening now</h2>
+                    <p class="eyebrow">Collected News</p>
+                    <h2>Review and publish manually</h2>
                   </div>
-                  <div id="pipelineLiveBadge" class="status slim">Idle</div>
+                  <button id="newsQueueBadge" class="status slim" type="button" data-open-section="dashboardSection" data-focus-panel="newsQueue">0 items</button>
                 </div>
-                <div id="pipelineLiveSummary" class="live-summary">Start Pipeline to see collection, filtering, post generation, and publishing updates here.</div>
-                <div id="pipelineLiveFeed" class="live-feed"></div>
+                <p class="hint">Choose a news item, edit the draft with AI, then send it to Telegram when you're ready.</p>
+                <div class="table-wrap">
+                  <table class="data-table data-table--clickable">
+                    <thead>
+                      <tr>
+                        <th>Title</th>
+                        <th>Source</th>
+                        <th>Status</th>
+                        <th>Actions</th>
+                      </tr>
+                    </thead>
+                    <tbody id="newsQueueTableBody"></tbody>
+                  </table>
+                </div>
               </article>
 
               <article class="dashboard-card dashboard-card--activity">
@@ -124,20 +167,41 @@
                 </div>
               </article>
 
+              <details id="errorLogsCard" class="dashboard-card dashboard-card--logs live-accordion" open>
+                <summary class="live-accordion-summary">
+                  <div>
+                    <p class="eyebrow">Logs & Fixes</p>
+                    <h2>Failed Tasks and Recovery Hints</h2>
+                  </div>
+                  <button id="errorLogsBadge" class="status slim" type="button" data-open-section="settingsSection">No errors</button>
+                </summary>
+                <div class="live-accordion-body">
+                  <div id="errorLogsSummary" class="live-summary">No errors recorded yet.</div>
+                  <div id="errorLogsList" class="live-feed"></div>
+                  <div class="action-guide">
+                    <div><strong>OpenAI issues</strong><span>Check the OpenAI key, model, and network connection in Settings.</span></div>
+                    <div><strong>Telegram issues</strong><span>Check Bot Token, API ID, API Hash, and channel settings before publishing again.</span></div>
+                    <div><strong>Source issues</strong><span>Open Sources, verify the feed or channel URL, then run Start Pipeline again.</span></div>
+                  </div>
+                </div>
+              </details>
+
               <article class="dashboard-card dashboard-card--actions">
                 <p class="eyebrow">Quick Actions</p>
                 <h2>Quick Actions</h2>
                 <div class="button-grid">
-                  <button id="parseNewsBtn" class="workflow-primary" type="button">Parse News</button>
-                  <button id="generatePostsBtn" class="secondary" type="button">Generate Posts</button>
-                  <button id="publishPendingBtn" class="secondary" type="button">Publish Pending</button>
+                  <button id="parseNewsBtn" class="workflow-primary" type="button">Fetch News</button>
+                  <button id="generatePostsBtn" class="secondary" type="button">Generate Post (AI)</button>
+                  <button id="publishPendingBtn" class="secondary" type="button">Send to Telegram</button>
+                  <button id="undoDashboardBtn" class="secondary" type="button">Undo Dashboard</button>
                   <button id="refreshBtn" class="secondary" type="button">Refresh</button>
                 </div>
-                <div id="quickActionNote" class="hint">Guided workflow: sources → filters → AI → review → publish.</div>
+                <div id="quickActionNote" class="hint">Guided workflow: Fetch News → Generate Post → Review → Send to Telegram.</div>
                 <div class="action-guide">
-                  <div><strong>Parse News</strong><span>collects fresh items from enabled RSS and Telegram sources.</span></div>
-                  <div><strong>Generate Posts</strong><span>takes the newest collected news item and queues AI text generation.</span></div>
-                  <div><strong>Publish Pending</strong><span>sends the first generated or pending post to Telegram.</span></div>
+                  <div><strong>Fetch News</strong><span>collects fresh items from enabled RSS and Telegram sources.</span></div>
+                  <div><strong>Generate Post (AI)</strong><span>creates one AI draft only after the user clicks it.</span></div>
+                  <div><strong>Send to Telegram</strong><span>sends the first generated or pending post to Telegram.</span></div>
+                  <div><strong>Undo Dashboard</strong><span>resets the open panels and returns the dashboard to its default view.</span></div>
                   <div><strong>Refresh</strong><span>reloads dashboard data, task status, posts, sources, and errors.</span></div>
                 </div>
               </article>
@@ -159,10 +223,13 @@
               </div>
               <div class="source-hero-actions">
                 <button id="openSourceModalBtn" class="workflow-primary" type="button">Add source (manual)</button>
-                <div class="source-hero-chips">
-                  <span class="badge badge--ok">Ready templates</span>
-                  <span class="badge badge--wait">Search results</span>
-                </div>
+                <button id="openReadyTemplatesBtn" class="source-state-button workflow-primary" type="button">
+                  <span class="source-state-indicator" aria-hidden="true"></span>
+                  <span class="source-state-copy">
+                    <strong>Ready Templates</strong>
+                    <small id="readyTemplatesCount">0 available</small>
+                  </span>
+                </button>
               </div>
             </div>
 
@@ -171,6 +238,10 @@
               <div class="subbody">
                 <div class="template-toolbar template-toolbar--sources">
                   <input id="sourceTemplateSearch" placeholder="Search templates or channels" autocomplete="off" />
+                </div>
+                <div class="source-search-status-row">
+                  <div id="sourceTemplateSearchStatus" class="status slim">Search for templates to see matching results.</div>
+                  <button id="runSourceTemplateSearchBtn" class="workflow-primary" type="button">Run Search</button>
                 </div>
                 <div class="source-accordion-stack">
                   <details class="source-accordion">
@@ -195,7 +266,7 @@
               </div>
             </details>
 
-            <article id="sourcesManagementPanel" class="panel">
+            <article id="sourcesManagementPanel" class="panel panel--wide sources-manager-panel">
               <div class="panel-head">
                 <div>
                   <p class="eyebrow">Source management</p>
@@ -222,9 +293,14 @@
             </article>
 
             <div class="source-footer">
-              <div id="sourcesStatus" class="status status-button" role="status" aria-live="polite">Sources not added yet</div>
-              <div id="sourcesCount" class="status status-button slim" role="status" aria-live="polite">Sources added: 0</div>
-              <button id="manageSourcesBtn" class="secondary" type="button">Manage Sources</button>
+              <div class="source-footer-state">
+                <div id="sourcesStatus" class="status status-button source-readiness-status" role="status" aria-live="polite">Source is not ready yet</div>
+                <div id="sourcesCount" class="status status-button slim" role="status" aria-live="polite">Sources added: 0</div>
+              </div>
+              <div class="source-footer-actions">
+                <button id="startPipelineFromSourceBtn" class="workflow-primary" type="button">Start Pipeline</button>
+                <button id="manageSourcesBtn" class="secondary" type="button">Manage Sources</button>
+              </div>
             </div>
           </div>
         </details>
@@ -330,6 +406,7 @@
             <div class="section-toolbar">
               <div class="section-copy">
                 <p class="lead">Click a row to open the original news and the generated text. Regenerate, publish, or delete from one modal.</p>
+                <p class="hint">Generate creates the first AI draft. Regenerate replaces the draft with a fresh AI version after you review it.</p>
               </div>
               <div id="postsSummary" class="status-grid"></div>
             </div>
@@ -450,7 +527,9 @@
           <button id="closeSourceModalBtn" type="button" class="secondary">Close</button>
         </div>
 
-        <div class="stack">
+        <div id="sourceEditBanner" class="status slim source-edit-banner">Fill the editable fields below, then save your changes.</div>
+
+        <div class="stack source-form-stack">
           <label class="field">
             <span>Type</span>
             <select name="type" id="sourceType">
@@ -481,14 +560,16 @@
             <span>Enabled</span>
           </label>
 
-          <button id="sourceSubmitBtn" class="workflow-primary" type="submit">Save source</button>
-          <div id="sourceSaveStatus" class="status slim"></div>
+          <div class="source-form-actions">
+            <button id="sourceSubmitBtn" class="workflow-primary" type="submit">Save source</button>
+            <div id="sourceSaveStatus" class="status slim">Ready to save the source.</div>
+          </div>
         </div>
       </form>
     </dialog>
 
     <dialog id="postModal" class="modal">
-      <div class="modal-shell modal-shell--wide">
+          <div class="modal-shell modal-shell--wide">
         <div class="modal-head">
           <div>
             <p class="eyebrow">Generated Posts</p>
@@ -511,13 +592,17 @@
 
           <article class="panel">
             <p class="eyebrow">Generated Text</p>
+            <div class="post-cover-preview">
+              <img id="postModalCoverImage" alt="Generated cover preview" hidden />
+              <div id="postModalCoverFallback" class="post-cover-fallback">AI creates a minimal cover image for this post.</div>
+            </div>
             <textarea id="postModalGeneratedText" placeholder="Generated post text"></textarea>
           </article>
         </div>
 
-        <div class="button-row">
-          <button id="regeneratePostBtn" class="secondary" type="button">Regenerate</button>
-          <button id="publishPostBtn" class="workflow-primary" type="button">Publish</button>
+        <div class="button-row post-modal-actions">
+          <button id="regeneratePostBtn" class="secondary" type="button">Regenerate Post</button>
+          <button id="publishPostBtn" class="workflow-primary" type="button">Send to Telegram</button>
           <button id="deletePostBtn" class="danger" type="button">Delete</button>
         </div>
       </div>

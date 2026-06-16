@@ -12,13 +12,7 @@ from app.news_parser.sites import fetch_site_news
 from app.news_parser.telegram import fetch_telegram_news
 from app.services.filtering import is_relevant_news
 from app.services.news_service import save_news_if_new
-from app.services.settings_service import (
-    get_auto_publish_posts,
-    get_pipeline_stop_task_id,
-    set_pipeline_current_task_id,
-    set_pipeline_stop_task_id,
-    should_stop_pipeline,
-)
+from app.services.settings_service import set_pipeline_current_task_id
 from app.telegram.publisher import publish_to_telegram
 from app.utils import configure_logging
 
@@ -30,9 +24,6 @@ PIPELINE_STAGES = [
     "Pipeline Started",
     "RSS Processing",
     "Telegram Processing",
-    "AI Processing",
-    "Post Generation",
-    "Publishing",
     "Completed",
 ]
 
@@ -81,16 +72,6 @@ def _build_news_text(news: NewsItem) -> str:
     return news.title
 
 
-def _mark_pipeline_stopped(self, stats: dict, stage_key: str) -> dict:
-    stats["stopped"] = True
-    stats["pipeline_running"] = False
-    stats["stage_key"] = stage_key
-    stats["stage_label"] = "Зупинено"
-    stats["stages"][stage_key] = "stopped"
-    self.update_state(state="SUCCESS", meta=_pipeline_meta(stats, stage_key, "stopped", "Зупинено"))
-    return stats
-
-
 @celery_app.task(name="app.tasks.parse_all_sources_task", bind=True)
 def parse_all_sources_task(self) -> dict:
     """Перший крок pipeline: зібрати новини з усіх увімкнених джерел."""
@@ -102,6 +83,7 @@ def parse_all_sources_task(self) -> dict:
         "telegram_sources": 0,
         "new_items": 0,
         "duplicates": 0,
+        "ready_for_generation": 0,
         "queued_for_ai": 0,
         "waiting_approval": 0,
         "errors": 0,
@@ -118,13 +100,7 @@ def parse_all_sources_task(self) -> dict:
         # Frontend читає Celery progress meta, щоб показувати стан конвеєра без перезавантаження.
         self.update_state(state="PROGRESS", meta=_pipeline_meta(stats, "Pipeline Started", "running"))
 
-        if should_stop_pipeline(db, getattr(self.request, "id", "")):
-            return _mark_pipeline_stopped(self, stats, "Pipeline Started")
-
         for source in sources:
-            if should_stop_pipeline(db, getattr(self.request, "id", "")):
-                return _mark_pipeline_stopped(self, stats, stats["stage_key"])
-
             try:
                 source.last_checked_at = utc_now()
                 if source.type == SourceType.site:
@@ -141,9 +117,6 @@ def parse_all_sources_task(self) -> dict:
                     stats["telegram_sources"] += 1
 
                 for parsed in parsed_items:
-                    if should_stop_pipeline(db, getattr(self.request, "id", "")):
-                        return _mark_pipeline_stopped(self, stats, stats["stage_key"])
-
                     news = parsed.to_model()
                     news.source_id = source.id
                     news.topic_id = source.topic_id
@@ -153,16 +126,11 @@ def parse_all_sources_task(self) -> dict:
                         continue
 
                     stats["new_items"] += 1
-                    stats["stage_key"] = "AI Processing"
-                    stats["stage_label"] = "AI Processing"
-                    self.update_state(state="PROGRESS", meta=_pipeline_meta(stats, "AI Processing", "running"))
                     decision = is_relevant_news(db, news)
                     if decision.accepted:
-                        generate_post_task.delay(news.id, pipeline_task_id=getattr(self.request, "id", ""))
-                        stats["queued_for_ai"] += 1
-                        stats["stage_key"] = "Post Generation"
-                        stats["stage_label"] = "Post Generation"
-                        self.update_state(state="PROGRESS", meta=_pipeline_meta(stats, "Post Generation", "running"))
+                        stats["ready_for_generation"] += 1
+                        stats["queued_for_ai"] = stats["ready_for_generation"]
+                        self.update_state(state="PROGRESS", meta=_pipeline_meta(stats, stats["stage_key"], "running"))
                     else:
                         logger.info("News skipped by filters: %s | %s", news.title, decision.reason)
                 source.last_error = None
@@ -174,23 +142,12 @@ def parse_all_sources_task(self) -> dict:
                 db.commit()
                 logger.exception("Не вдалося обробити джерело %s: %s", source.name, exc)
 
-        if stats["queued_for_ai"]:
-            stats["stage_key"] = "Publishing"
-            stats["stage_label"] = "Publishing"
-            self.update_state(state="PROGRESS", meta=_pipeline_meta(stats, "Publishing", "running"))
-
-        if should_stop_pipeline(db, getattr(self.request, "id", "")):
-            return _mark_pipeline_stopped(self, stats, stats["stage_key"])
-
         stats["stage_key"] = "Completed"
         stats["stage_label"] = "Completed"
         stats["pipeline_running"] = False
         stats["stages"]["Pipeline Started"] = "completed"
         stats["stages"]["RSS Processing"] = "completed" if stats["rss_sources"] else "pending"
         stats["stages"]["Telegram Processing"] = "completed" if stats["telegram_sources"] else "pending"
-        stats["stages"]["AI Processing"] = "completed" if stats["queued_for_ai"] else "pending"
-        stats["stages"]["Post Generation"] = "completed" if stats["queued_for_ai"] else "pending"
-        stats["stages"]["Publishing"] = "completed" if stats["queued_for_ai"] else "pending"
         stats["stages"]["Completed"] = "completed"
         self.update_state(state="SUCCESS", meta=_pipeline_meta(stats, "Completed", "completed"))
         return stats
@@ -200,7 +157,7 @@ def parse_all_sources_task(self) -> dict:
 
 
 @celery_app.task(name="app.tasks.generate_post_task")
-def generate_post_task(news_id: str, pipeline_task_id: str | None = None) -> dict:
+def generate_post_task(news_id: str) -> dict:
     """Другий крок pipeline: згенерувати Telegram-пост через AI."""
 
     db = _session()
@@ -208,9 +165,6 @@ def generate_post_task(news_id: str, pipeline_task_id: str | None = None) -> dic
         news = db.get(NewsItem, news_id)
         if not news:
             return {"status": "failed", "reason": "news not found"}
-
-        if pipeline_task_id and should_stop_pipeline(db, pipeline_task_id):
-            return {"status": "stopped", "reason": "pipeline stop requested", "news_id": news_id}
 
         existing = db.query(Post).filter(Post.news_id == news_id).one_or_none()
         if existing and existing.status == PostStatus.published:
@@ -220,15 +174,10 @@ def generate_post_task(news_id: str, pipeline_task_id: str | None = None) -> dic
             generated_text = generate_post_sync(text=_build_news_text(news), title=news.title)
             post = existing or Post(news_id=news.id, generated_text=generated_text)
             post.generated_text = generated_text
-            auto_publish_posts = get_auto_publish_posts(db)
-            post.status = PostStatus.generated if auto_publish_posts else PostStatus.pending_approval
+            post.status = PostStatus.pending_approval
             post.error = None
             db.add(post)
             db.commit()
-
-            if auto_publish_posts and not (pipeline_task_id and should_stop_pipeline(db, pipeline_task_id)):
-                publish_post_task.delay(post.id, pipeline_task_id=pipeline_task_id)
-                return {"status": "generated_and_queued_for_publish", "post_id": post.id}
 
             return {"status": "pending_approval", "post_id": post.id}
         except Exception as exc:
@@ -244,7 +193,7 @@ def generate_post_task(news_id: str, pipeline_task_id: str | None = None) -> dic
 
 
 @celery_app.task(name="app.tasks.publish_post_task")
-def publish_post_task(post_id: str, pipeline_task_id: str | None = None) -> dict:
+def publish_post_task(post_id: str) -> dict:
     """Третій крок pipeline: опублікувати готовий пост у Telegram."""
 
     db = _session()
@@ -252,9 +201,6 @@ def publish_post_task(post_id: str, pipeline_task_id: str | None = None) -> dict
         post = db.get(Post, post_id)
         if not post:
             return {"status": "failed", "reason": "post not found"}
-
-        if pipeline_task_id and should_stop_pipeline(db, pipeline_task_id):
-            return {"status": "stopped", "reason": "pipeline stop requested", "post_id": post_id}
 
         if post.status == PostStatus.published:
             return {"status": "skipped", "reason": "already published"}
@@ -267,8 +213,6 @@ def publish_post_task(post_id: str, pipeline_task_id: str | None = None) -> dict
                 post.generated_text = generate_post_sync(text=_build_news_text(post.news), title=post.news.title)
                 db.add(post)
                 db.commit()
-            if pipeline_task_id and should_stop_pipeline(db, pipeline_task_id):
-                return {"status": "stopped", "reason": "pipeline stop requested", "post_id": post_id}
             asyncio.run(publish_to_telegram(post.generated_text, read_url=read_url, site_url=read_url))
             post.status = PostStatus.published
             post.published_at = utc_now()

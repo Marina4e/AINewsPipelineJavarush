@@ -2,6 +2,13 @@
 
 AI News Pipeline collects news from RSS and Telegram, prepares materials with AI or manual editing, and publishes approved content to Telegram.
 
+Current manual flow in the dashboard:
+
+- `Start Pipeline` fetches news from enabled sources only
+- `Fetch News` is the guided dashboard action for the same collection step
+- `Generate Post (AI)` creates one draft only after an explicit user click
+- `Send to Telegram` publishes the approved or pending post manually
+
 Docs:
 
 - [README_UA.md](README_UA.md)
@@ -72,7 +79,9 @@ Telegram and background flow:
 
 - open the dashboard at `http://localhost:8000/`
 - save `ADMIN_API_KEY` in the dashboard once per browser session
-- use the pipeline button to run parsing
+- use `Start Pipeline` or `Запустить pipeline` from Sources to run parsing
+- stop a run with `Stop Pipeline` if it is still active
 - use OpenAI check to verify AI mode or demo mode
+- use `Generate Post (AI)` and `Send to Telegram` for the manual review flow
 - use the delivery section to verify Telegram configuration and queue publishing
 - watch `docker compose logs --tail=80 app` for the Telegram bot, Celery worker and FastAPI output

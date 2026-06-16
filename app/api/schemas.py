@@ -142,10 +142,6 @@ class TaskResponse(BaseModel):
     message: str
 
 
-class PipelineControlRequest(BaseModel):
-    task_id: str | None = None
-
-
 # Схеми dashboard-статусів віддають frontend тільки безпечні прапорці без секретів.
 class DashboardPublicStatus(BaseModel):
     openai_configured: bool

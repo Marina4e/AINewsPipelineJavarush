@@ -21,7 +21,6 @@ from app.api.schemas import (
     ManualNewsCreate,
     NewsRead,
     OpenAICheckResponse,
-    PipelineControlRequest,
     PostRead,
     RejectPostRequest,
     SourceCreate,
@@ -42,7 +41,6 @@ from app.services.settings_service import (
     get_pipeline_current_task_id,
     set_auto_publish_posts,
     set_pipeline_current_task_id,
-    set_pipeline_stop_task_id,
 )
 from app.services.source_catalog import SOURCE_SUGGESTIONS
 from app.tasks import celery_app, generate_post_task, parse_all_sources_task, publish_post_task
@@ -597,20 +595,6 @@ def run_pipeline(db: Session = Depends(get_db)) -> TaskResponse:
     task = parse_all_sources_task.delay()
     set_pipeline_current_task_id(db, task.id)
     return TaskResponse(task_id=task.id, message="Збір новин запущено")
-
-
-@router.post("/pipeline/stop", response_model=TaskResponse, dependencies=[AdminOnly])
-def stop_pipeline(payload: PipelineControlRequest | None = None, db: Session = Depends(get_db)) -> TaskResponse:
-    task_id = (payload.task_id if payload else None) or get_pipeline_current_task_id(db)
-    if task_id:
-        set_pipeline_stop_task_id(db, task_id)
-        try:
-            celery_app.control.revoke(task_id, terminate=True, signal="SIGTERM")
-        except Exception as exc:  # pragma: no cover - best-effort control path
-            logger.warning("Не вдалося відкликати pipeline task %s: %s", task_id, exc)
-        return TaskResponse(task_id=task_id, message="Конвеєр новин зупинено")
-
-    return TaskResponse(task_id="", message="Конвеєр новин уже зупинено")
 
 
 @router.get("/tasks/{task_id}", dependencies=[AdminOnly])

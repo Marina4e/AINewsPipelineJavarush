@@ -68,9 +68,6 @@ const PIPELINE_STEPS = [
   { key: "Pipeline Started", label: "Start" },
   { key: "RSS Processing", label: "RSS" },
   { key: "Telegram Processing", label: "Telegram" },
-  { key: "AI Processing", label: "Filters" },
-  { key: "Post Generation", label: "AI" },
-  { key: "Publishing", label: "Publish" },
   { key: "Completed", label: "Done" },
 ];
 
@@ -107,8 +104,8 @@ const state = {
   postStatusFilter: "",
   selectedPostId: "",
   sourceTemplateQuery: readJson(SOURCE_TEMPLATE_QUERY_KEY, ""),
+  sourceTemplateDraftQuery: readJson(SOURCE_TEMPLATE_QUERY_KEY, ""),
   settingsDraft: loadSettingsDraft(),
-  uiPaused: false,
   taskTimers: new Map(),
 };
 
@@ -336,9 +333,16 @@ function explainErrorBody(body, fallback) {
 
 async function requestJson(path, options = {}, auth = true) {
   let response;
+  const { timeoutMs, signal, ...requestOptions } = options || {};
+  const controller = timeoutMs ? new AbortController() : null;
+  let timeoutHandle = null;
   try {
+    if (controller && timeoutMs > 0) {
+      timeoutHandle = window.setTimeout(() => controller.abort(), timeoutMs);
+    }
     response = await fetch(path, {
-      ...options,
+      ...requestOptions,
+      signal: controller?.signal || signal,
       headers: {
         ...(auth ? authHeaders() : { "Content-Type": "application/json" }),
         ...(options.headers || {}),
@@ -346,6 +350,8 @@ async function requestJson(path, options = {}, auth = true) {
     });
   } catch {
     throw new Error("Не вдалося з'єднатися з API. Перевір, що сервер запущено.");
+  } finally {
+    if (timeoutHandle) window.clearTimeout(timeoutHandle);
   }
 
   if (!response.ok) {
@@ -514,18 +520,14 @@ function pipelineTone(stageState) {
   if (stageState === "running") return "is-running";
   if (stageState === "completed") return "is-complete";
   if (stageState === "failed") return "is-failed";
-  if (stageState === "stopped") return "is-stopped";
   return "";
 }
 
 function translateStageLabel(value) {
   const map = {
     "Pipeline Started": "Start",
-    "RSS Processing": "Collect RSS",
-    "Telegram Processing": "Collect Telegram",
-    "AI Processing": "Filters",
-    "Post Generation": "AI",
-    "Publishing": "Publish",
+    "RSS Processing": "Fetch News",
+    "Telegram Processing": "Fetch Telegram",
     "Completed": "Done",
   };
   return map[value] || value || "";
@@ -537,7 +539,6 @@ function translateStageState(value) {
     running: "active",
     completed: "done",
     failed: "failed",
-    stopped: "stopped",
   };
   return map[value] || value || "";
 }
@@ -545,9 +546,8 @@ function translateStageState(value) {
 function statusExplanation(value) {
   const map = {
     Ready: "Ready means the dashboard can start a new run, but no collection is active right now.",
-    Running: "Running means Celery is collecting sources, filtering news, or queueing AI/publish tasks.",
-    Stopped: "Stopped means no main collection task is running. If the last run was fast, it may have simply found no new news.",
-    Done: "Done means the main collection task finished. AI generation and publishing can still be separate queued tasks.",
+    Running: "Running means Celery is fetching sources and checking which items are ready for manual AI generation.",
+    Done: "Done means the collection task finished. Generate Post stays manual so you can review the draft first.",
     Error: "Error means the task failed. Check Failed Tasks, source errors, and logs.",
   };
   return map[value] || map.Ready;
@@ -556,17 +556,13 @@ function statusExplanation(value) {
 function stageExplanation(stageKey, stageState) {
   const descriptions = {
     "Pipeline Started": "prepares the run",
-    "RSS Processing": "checks website feeds",
-    "Telegram Processing": "checks channels",
-    "AI Processing": "applies filters",
-    "Post Generation": "queues AI drafts",
-    Publishing: "queues Telegram sends",
+    "RSS Processing": "fetches website feeds",
+    "Telegram Processing": "fetches Telegram channels",
     Completed: "main run finished",
   };
   if (stageState === "pending") return descriptions[stageKey] || "waiting for its turn";
   if (stageState === "running") return descriptions[stageKey] || "running now";
   if (stageState === "completed") return "completed";
-  if (stageState === "stopped") return "stopped here";
   if (stageState === "failed") return "failed here";
   return descriptions[stageKey] || "";
 }
@@ -578,51 +574,46 @@ function pipelineOutcomeMessage(meta, context) {
   if (context.failed) {
     return explainErrorBody(context.status.task_result || context.status.task_meta, "Pipeline finished with an error");
   }
-  if (context.stopped) {
-    return "Pipeline stopped. Stop works only while the main collection task is still running.";
-  }
   if (context.status.task_state === "SUCCESS") {
     const newItems = Number(meta.new_items || 0);
-    const queued = Number(meta.queued_for_ai || 0);
+    const ready = Number(meta.ready_for_generation ?? meta.queued_for_ai ?? 0);
     const errors = Number(meta.errors || 0);
-    if (!newItems && !queued && !errors) {
-      return "Pipeline finished quickly: no new news was found, so there was nothing to generate or publish.";
+    if (!newItems && !ready && !errors) {
+      return "Pipeline finished quickly: no new news was found, so there was nothing to generate manually.";
     }
-    return `Pipeline finished: ${newItems} new, ${queued} queued for AI, ${errors} failed source checks.`;
+    return `Pipeline finished: ${newItems} new, ${ready} ready for Generate Post, ${errors} failed source checks.`;
   }
   return "Ready means sources and settings can be checked, but no collection is running yet.";
 }
 
-function pipelineToastMessage(status, stopped) {
+function pipelineToastMessage(status) {
   const meta = status.task_result && Object.keys(status.task_result).length ? status.task_result : status.task_meta || {};
-  if (stopped) return "Pipeline stopped. There may be no need to stop it if the run already finished.";
   if (status.task_state === "FAILURE") return "Pipeline finished with an error. Check Failed Tasks and source errors.";
   const newItems = Number(meta.new_items || 0);
-  const queued = Number(meta.queued_for_ai || 0);
+  const ready = Number(meta.ready_for_generation ?? meta.queued_for_ai ?? 0);
   const errors = Number(meta.errors || 0);
-  if (!newItems && !queued && !errors) return "Pipeline completed quickly: no new news was found, so nothing was generated.";
-  return `Pipeline completed: ${newItems} new, ${queued} queued for AI, ${errors} failed.`;
+  if (!newItems && !ready && !errors) return "Pipeline completed quickly: no new news was found, so nothing was generated.";
+  return `Pipeline completed: ${newItems} new, ${ready} ready for Generate Post, ${errors} failed.`;
 }
 
 function pipelineContext() {
   const status = state.pipelineStatus || {};
   const meta = status.task_result && Object.keys(status.task_result).length ? status.task_result : status.task_meta || {};
-  const terminal = ["SUCCESS", "FAILURE", "REVOKED"].includes(status.task_state);
-  const stopped = Boolean(
-    meta.stopped ||
-      status.task_state === "REVOKED" ||
-      status.task_result?.stopped ||
-      status.task_meta?.stopped ||
-      (state.uiPaused && state.pipelineTaskId && !terminal)
-  );
-  const running =
-    !stopped && (Boolean(meta.pipeline_running) || ["PENDING", "STARTED", "PROGRESS", "RETRY", "queued", "running"].includes(status.task_state));
+  const running = Boolean(meta.pipeline_running) || ["PENDING", "STARTED", "PROGRESS", "RETRY", "queued", "running"].includes(status.task_state);
   const failed = status.task_state === "FAILURE";
-  return { status, meta, stopped, running, failed };
+  return { status, meta, running, failed };
 }
 
 function isPipelineTerminal(status) {
-  return ["SUCCESS", "FAILURE", "REVOKED"].includes(status?.task_state);
+  return ["SUCCESS", "FAILURE"].includes(status?.task_state);
+}
+
+function clearPipelinePoll(taskId = state.pipelineTaskId) {
+  const existing = state.taskTimers.get(taskId);
+  if (existing) {
+    window.clearInterval(existing);
+    state.taskTimers.delete(taskId);
+  }
 }
 
 function renderPlaceholder(bodySelector, message, colspan) {
@@ -643,7 +634,7 @@ function renderPublicState() {
     if (connected && target) {
       link.href = sourceHref(target);
       link.removeAttribute("data-open-section");
-      link.textContent = "📢 Відкрити Telegram-канал";
+      link.textContent = "📢 Open Telegram Channel";
       link.classList.add("is-success");
       link.title = "Open the connected Telegram channel";
     } else {
@@ -667,8 +658,8 @@ function renderPublicState() {
   }
 }
 
-function mergedSourceSuggestions(type) {
-  const query = normalize(state.sourceTemplateQuery).toLowerCase();
+function mergedSourceSuggestions(type, query = state.sourceTemplateQuery) {
+  const normalizedQuery = normalize(query).toLowerCase();
   const base = state.sourceSuggestions.filter((item) => item.type === type);
   const fallback = SOURCE_EXAMPLE_FALLBACKS[type] || [];
   const seen = new Set();
@@ -679,9 +670,9 @@ function mergedSourceSuggestions(type) {
     const url = normalize(item.url).toLowerCase();
     const key = `${name}|${url}`;
     if (seen.has(key)) continue;
-    if (query) {
+    if (normalizedQuery) {
       const haystack = `${name} ${url} ${normalize(item.description).toLowerCase()}`;
-      if (!haystack.includes(query)) continue;
+      if (!haystack.includes(normalizedQuery)) continue;
     }
     seen.add(key);
     merged.push(item);
@@ -710,10 +701,32 @@ function renderSuggestionCard(item, index, type, locked = false) {
 
 function renderSourceTemplates() {
   const search = $("#sourceTemplateSearch");
-  if (search && search.value !== state.sourceTemplateQuery) {
-    search.value = state.sourceTemplateQuery;
+  if (search && search.value !== state.sourceTemplateDraftQuery) {
+    search.value = state.sourceTemplateDraftQuery;
   }
   const locked = !hasAdminKey();
+  const readyCount = mergedSourceSuggestions("site", "").length + mergedSourceSuggestions("tg", "").length;
+  const filteredCount = mergedSourceSuggestions("site").length + mergedSourceSuggestions("tg").length;
+
+  const readyButton = $("#openReadyTemplatesBtn");
+  if (readyButton) {
+    readyButton.disabled = readyCount === 0;
+    readyButton.classList.toggle("is-ready", readyCount > 0);
+    readyButton.classList.toggle("is-wait", readyCount === 0);
+  }
+  setText("#readyTemplatesCount", readyCount ? `${readyCount} available` : "No templates yet");
+
+  const searchStatus = $("#sourceTemplateSearchStatus");
+  if (searchStatus) {
+    searchStatus.classList.remove("status--ok", "status--wait", "status--error", "status--run");
+    searchStatus.classList.add(state.sourceTemplateQuery ? (filteredCount ? "status--ok" : "status--wait") : "status--wait");
+    searchStatus.textContent = state.sourceTemplateQuery
+      ? filteredCount
+        ? `${filteredCount} result${filteredCount === 1 ? "" : "s"} matched your search.`
+        : "No templates matched the current search."
+      : "Search for templates to see matching results.";
+  }
+
   const renderGroup = (selectors, type, emptyText) => {
     const items = mergedSourceSuggestions(type);
     const html =
@@ -727,6 +740,90 @@ function renderSourceTemplates() {
 
   renderGroup(["#rssVisibleSuggestionsList"], "site", "No RSS templates match your search.");
   renderGroup(["#telegramVisibleSuggestionsList"], "tg", "No Telegram templates match your search.");
+}
+
+function findPostByNewsId(newsId) {
+  return state.posts.find((post) => post.news_id === newsId) || null;
+}
+
+function renderNewsRow(item) {
+  const post = findPostByNewsId(item.id);
+  const status = postStatusInfo(post?.status || "new");
+  const source = item.source || "—";
+  const topicName = topicNameById(item.topic_id);
+  return `
+    <tr data-open-news-id="${escapeHtml(item.id)}">
+      <td data-label="Title">
+        <div class="row-title">${escapeHtml(item.title)}</div>
+        <div class="row-subtle">${escapeHtml(item.summary || "No summary available.")}</div>
+      </td>
+      <td data-label="Source">
+        <div class="row-title">${escapeHtml(source)}</div>
+        <div class="row-subtle">${escapeHtml(topicName)}</div>
+      </td>
+      <td data-label="Status">
+        <span class="badge post-status post-status--${escapeHtml(status.tone)}">${escapeHtml(post ? status.label : "Ready")}</span>
+      </td>
+      <td data-label="Actions">
+        <div class="row-actions">
+          <button class="secondary" type="button" data-edit-news="${escapeHtml(item.id)}">Edit</button>
+          <button class="workflow-primary" type="button" data-send-news="${escapeHtml(item.id)}">Send to Telegram</button>
+        </div>
+      </td>
+    </tr>`;
+}
+
+function renderNewsQueue() {
+  const body = $("#newsQueueTableBody");
+  const badge = $("#newsQueueBadge");
+  if (!body || !badge) return;
+
+  const items = [...state.news].sort((left, right) => new Date(right.published_at) - new Date(left.published_at));
+  setStatus("#newsQueueBadge", items.length ? "OK" : "WAIT", items.length ? `${items.length} item${items.length === 1 ? "" : "s"}` : "0 items");
+
+  if (!hasAdminKey()) {
+    renderPlaceholder("#newsQueueTableBody", "Enter the admin access code to review collected news.", 4);
+    return;
+  }
+
+  if (!items.length) {
+    renderPlaceholder("#newsQueueTableBody", "No collected news yet. Start the pipeline to fetch items.", 4);
+    return;
+  }
+
+  body.innerHTML = items.map(renderNewsRow).join("");
+}
+
+function openSourceTemplatesLibrary({ focusSearch = false, expandAll = true } = {}) {
+  const library = document.querySelector(".source-library");
+  if (library) {
+    library.open = true;
+  }
+  if (expandAll) {
+    document.querySelectorAll(".source-accordion").forEach((node) => {
+      node.open = true;
+    });
+  }
+  window.requestAnimationFrame(() => {
+    library?.scrollIntoView({ behavior: "smooth", block: "start" });
+    if (focusSearch) {
+      $("#sourceTemplateSearch")?.focus();
+    }
+  });
+}
+
+function setSourceTemplateSearchQuery(query) {
+  const value = normalize(query);
+  state.sourceTemplateDraftQuery = value;
+  state.sourceTemplateQuery = value;
+  writeJson(SOURCE_TEMPLATE_QUERY_KEY, value);
+  renderSourceTemplates();
+}
+
+function searchSourceTemplates() {
+  const search = $("#sourceTemplateSearch");
+  setSourceTemplateSearchQuery(search?.value || "");
+  openSourceTemplatesLibrary({ focusSearch: false, expandAll: true });
 }
 
 function renderSourceModalState() {
@@ -748,6 +845,15 @@ function renderSourceModalState() {
 
   if (title) title.textContent = mode === "edit" ? "Edit source" : "Add source (manual)";
   if (submit) submit.textContent = mode === "edit" ? "Update source" : "Save source";
+  const editBanner = $("#sourceEditBanner");
+  if (editBanner) {
+    editBanner.classList.remove("status--ok", "status--wait", "status--run", "status--error");
+    editBanner.classList.add(mode === "edit" ? "status--ok" : "status--wait");
+    editBanner.textContent =
+      mode === "edit"
+        ? "Editing mode: update the fields below, then press Save source."
+        : "Create mode: fill the editable fields below, then press Save source.";
+  }
   if (hint) {
     hint.textContent =
       type === "tg"
@@ -757,6 +863,9 @@ function renderSourceModalState() {
   const enabled = $("#sourceEnabled");
   if (enabled && !enabled.checked) {
     setStatus("#sourceSaveStatus", "WAIT", "Source is currently disabled");
+  }
+  if (submit) {
+    submit.disabled = !hasAdminKey();
   }
 }
 
@@ -819,9 +928,9 @@ function renderSourceRow(source) {
     ? `Last error: ${source.last_error}`
     : source.enabled
       ? source.topic_id
-        ? `Ready for launch under ${themeName}`
-        : "Ready for launch"
-      : "Turned off";
+        ? `Source is ready under ${themeName}`
+        : "Source is ready"
+      : "Source is waiting";
   const href = sourceHref(source.url);
   return `
     <tr data-source-id="${escapeHtml(source.id)}">
@@ -838,7 +947,7 @@ function renderSourceRow(source) {
       </td>
       <td data-label="Status">
         <div class="source-status">
-          <span class="badge ${source.enabled ? "badge--ok" : "badge--wait"}">${escapeHtml(statusBadge)}</span>
+          <span class="badge ${infoTone === "error" ? "badge--error" : source.enabled ? "badge--ok" : "badge--wait"}">${escapeHtml(statusBadge)}</span>
           <div class="row-subtle">${escapeHtml(note)}</div>
           ${href ? `<a class="row-subtle" href="${escapeHtml(href)}" target="_blank" rel="noreferrer">Open source</a>` : ""}
         </div>
@@ -881,11 +990,14 @@ function renderSources() {
   const errors = state.sources.filter((item) => item.last_error).length;
   const disabled = state.sources.filter((item) => !item.enabled).length;
   const locked = !hasAdminKey();
+  const pipelineRunning = pipelineContext().running;
 
   const addSourceBtn = $("#openSourceModalBtn");
   const manageSourcesBtn = $("#manageSourcesBtn");
+  const startPipelineFromSourceBtn = $("#startPipelineFromSourceBtn");
   if (addSourceBtn) addSourceBtn.disabled = locked;
   if (manageSourcesBtn) manageSourcesBtn.disabled = locked;
+  if (startPipelineFromSourceBtn) startPipelineFromSourceBtn.disabled = locked || pipelineRunning;
 
   if (body) {
     if (locked) {
@@ -907,16 +1019,16 @@ function renderSources() {
   }
 
   if (!total) {
-    setStatus("#sourcesStatus", "WAIT", "Sources not added yet");
+    setStatus("#sourcesStatus", "WAIT", "Source is not ready yet");
     setStatus("#sourcesCount", "WAIT", "Sources added: 0");
   } else if (errors) {
     setStatus("#sourcesStatus", "ERROR", `${errors} source${errors === 1 ? "" : "s"} need attention`);
     setStatus("#sourcesCount", "OK", `Sources added: ${total}`);
   } else if (disabled) {
-    setStatus("#sourcesStatus", "WAIT", `Sources ready with ${disabled} disabled`);
+    setStatus("#sourcesStatus", "WAIT", `${disabled} source${disabled === 1 ? "" : "s"} waiting`);
     setStatus("#sourcesCount", "OK", `Sources added: ${total}`);
   } else {
-    setStatus("#sourcesStatus", "OK", "Sources ready for launch");
+    setStatus("#sourcesStatus", "OK", "Source is ready");
     setStatus("#sourcesCount", "OK", `Sources added: ${total}`);
   }
 
@@ -1053,7 +1165,7 @@ function renderPosts() {
     : state.posts;
 
   if (!filteredPosts.length) {
-    renderPlaceholder("#postsTableBody", state.postStatusFilter ? "No posts match this status filter." : "No posts yet. Parse sources to create the first draft.", 4);
+    renderPlaceholder("#postsTableBody", state.postStatusFilter ? "No posts match this status filter." : "No posts yet. Fetch news and then generate the first draft.", 4);
   } else {
     const sorted = [...filteredPosts].sort((left, right) => new Date(right.created_at) - new Date(left.created_at));
     body.innerHTML = sorted.map(renderPostRow).join("");
@@ -1077,7 +1189,7 @@ function renderPipelineStepper() {
   const meta = context.meta || {};
   const stages = meta.stages || {};
   const currentKey = meta.stage_key || state.pipelineStepFocus || "Pipeline Started";
-  const statusState = context.stopped ? "stopped" : context.running ? "running" : context.failed ? "failed" : "pending";
+  const statusState = context.running ? "running" : context.failed ? "failed" : "pending";
 
   setHtml(
     "#pipelineStepper",
@@ -1096,12 +1208,10 @@ function renderPipelineStepper() {
 
   const buttonLocked = !hasAdminKey();
   const startBtn = $("#startPipelineBtn");
-  const stopBtn = $("#stopPipelineBtn");
   if (startBtn) startBtn.disabled = buttonLocked || context.running;
-  if (stopBtn) stopBtn.disabled = buttonLocked || !context.running;
 
   const badgeText = context.running ? "Running" : context.failed ? "Error" : context.status.task_state === "SUCCESS" ? "Done" : "Ready";
-  const badgeToken = context.running ? "RUN" : context.failed ? "ERROR" : "WAIT";
+  const badgeToken = context.running ? "RUN" : context.failed ? "ERROR" : context.status.task_state === "SUCCESS" ? "OK" : "WAIT";
   setStatus("#pipelineStatusBadge", badgeToken, badgeText);
 
   let message = pipelineOutcomeMessage(meta, context);
@@ -1117,7 +1227,7 @@ function renderPipelineStepper() {
   if (state.settingsDraft.language) note.push(`Language: ${state.settingsDraft.language}.`);
   if (state.settingsDraft.duplicateDetection) note.push("Duplicate detection is enabled.");
   if (state.settingsDraft.sourceFiltering) note.push("Source filtering is enabled.");
-  if (!note.length) note.push("Guided workflow: sources → filters → AI → review → publish.");
+  note.unshift("Guided workflow: Fetch News → Generate Post → Review → Send to Telegram.");
   setText("#quickActionNote", note.join(" "));
 
   return statusState;
@@ -1130,13 +1240,13 @@ function buildActivityRows() {
   const meta = context.meta || {};
 
   if (context.status && Object.keys(context.status).length) {
-    const pipelineStatusText = context.running ? "Running" : context.failed ? "Error" : context.stopped ? "Stopped" : context.status.task_state === "SUCCESS" ? "Done" : "Ready";
+    const pipelineStatusText = context.running ? "Running" : context.failed ? "Error" : context.status.task_state === "SUCCESS" ? "Done" : "Ready";
     rows.push({
       ts: now,
       time: formatShortTime(new Date(now)),
       action: `Pipeline · ${translateStageLabel(meta.stage_label || meta.stage_key || "Start")}`,
       status: pipelineStatusText,
-      tone: context.running ? "run" : context.failed ? "error" : context.stopped ? "warn" : "ok",
+      tone: context.running ? "run" : context.failed ? "error" : "ok",
     });
   }
 
@@ -1194,22 +1304,55 @@ function buildLiveFeedRows() {
   const meta = context.meta || {};
   const rows = [];
   const now = Date.now();
+  const readyCount = Number(meta.ready_for_generation ?? meta.queued_for_ai ?? 0);
+  const lastError = (state.errorLogs || []).slice(-1)[0] || "";
+  const activeStage = context.running ? translateStageLabel(meta.stage_label || meta.stage_key || "Pipeline Started") : "Idle";
 
   rows.push({
     ts: now,
-    title: context.running ? `Active stage: ${translateStageLabel(meta.stage_label || meta.stage_key || "Start")}` : "Pipeline is not actively collecting right now",
-    meta: pipelineOutcomeMessage(meta, context),
+    title: context.running
+      ? `Current action: ${translateStageLabel(meta.stage_label || meta.stage_key || "Start")}`
+      : "Current action: pipeline is idle",
+    meta: context.running
+      ? pipelineOutcomeMessage(meta, context)
+      : "Start Pipeline to fetch news sources and prepare items for manual AI generation.",
     tone: context.running ? "run" : context.failed ? "error" : "wait",
   });
 
-  if (meta.sources || meta.new_items || meta.duplicates || meta.queued_for_ai || meta.errors) {
+  if (meta.sources || meta.new_items || meta.duplicates || readyCount || meta.errors) {
     rows.push({
       ts: now - 1,
-      title: `Run counters: ${Number(meta.new_items || 0)} new, ${Number(meta.duplicates || 0)} duplicates, ${Number(meta.queued_for_ai || 0)} queued for AI`,
+      title: `Run counters: ${Number(meta.new_items || 0)} new, ${Number(meta.duplicates || 0)} duplicates, ${readyCount} ready for Generate Post`,
       meta: `${Number(meta.sources || 0)} enabled sources checked, ${Number(meta.errors || 0)} source errors.`,
       tone: Number(meta.errors || 0) ? "error" : "ok",
     });
   }
+
+  rows.push({
+    ts: now - 2,
+    title: `Active stage: ${activeStage}`,
+    meta: context.running ? "The current stage updates automatically while the collection task is active." : "No active collection stage right now.",
+    tone: context.running ? "run" : "wait",
+  });
+
+  rows.push({
+    ts: now - 3,
+    title: "Last action",
+    meta:
+      state.posts[0]?.status
+        ? `Most recent post status: ${postStatusInfo(state.posts[0].status).label}.`
+        : state.news[0]?.title
+          ? `Last collected item: ${state.news[0].title}.`
+          : "No previous action yet.",
+    tone: state.posts[0]?.status === "failed" || state.posts[0]?.status === "rejected" ? "error" : "ok",
+  });
+
+  rows.push({
+    ts: now - 4,
+    title: "Errors",
+    meta: lastError || (meta.errors ? `${meta.errors} source errors were captured in the last run.` : "No errors recorded."),
+    tone: lastError || meta.errors ? "error" : "ok",
+  });
 
   [...state.news].slice(0, 5).forEach((item, index) => {
     rows.push({
@@ -1245,10 +1388,40 @@ function buildLiveFeedRows() {
 function renderLiveFeed() {
   const context = pipelineContext();
   const meta = context.meta || {};
-  const liveBadge = context.running ? "Live" : context.failed ? "Needs attention" : "Idle";
-  const liveToken = context.running ? "RUN" : context.failed ? "ERROR" : "WAIT";
+  const liveBadge = context.running ? "Live" : context.failed ? "Needs attention" : context.status.task_state === "SUCCESS" ? "Done" : "Idle";
+  const liveToken = context.running ? "RUN" : context.failed ? "ERROR" : context.status.task_state === "SUCCESS" ? "OK" : "WAIT";
   setStatus("#pipelineLiveBadge", liveToken, liveBadge);
   setText("#pipelineLiveSummary", pipelineOutcomeMessage(meta, context));
+
+  const readyCount = Number(meta.ready_for_generation ?? meta.queued_for_ai ?? 0);
+  setText(
+    "#pipelineLiveCurrentAction",
+    context.running
+      ? `Collecting ${translateStageLabel(meta.stage_label || meta.stage_key || "Pipeline Started")}`
+      : "Waiting for a manual start."
+  );
+  setText(
+    "#pipelineLiveActiveStage",
+    context.running ? translateStageLabel(meta.stage_label || meta.stage_key || "Pipeline Started") || "Idle" : "Idle"
+  );
+  setText(
+    "#pipelineLiveLastAction",
+    state.posts[0]?.status
+      ? `Latest post status: ${postStatusInfo(state.posts[0].status).label}`
+      : state.news[0]?.title
+        ? `Latest news item: ${state.news[0].title}`
+        : "No actions yet."
+  );
+  setText(
+    "#pipelineLiveErrors",
+    (state.errorLogs || []).length
+      ? `${state.errorLogs.length} error${state.errorLogs.length === 1 ? "" : "s"} logged`
+      : Number(meta.errors || 0)
+        ? `${Number(meta.errors)} source error${Number(meta.errors) === 1 ? "" : "s"} in the latest run`
+        : readyCount
+          ? "No blocking errors"
+          : "No errors."
+  );
 
   setHtml(
     "#pipelineLiveFeed",
@@ -1268,11 +1441,131 @@ function renderLiveFeed() {
   );
 }
 
+function logFixHint(line) {
+  const text = String(line || "").toLowerCase();
+  if (text.includes("openai") || text.includes("ai") || text.includes("model")) {
+    return {
+      section: "settingsSection",
+      label: "Open Settings",
+      hint: "Check the OpenAI key, model, and connection test.",
+    };
+  }
+  if (text.includes("telegram") || text.includes("bot") || text.includes("channel")) {
+    return {
+      section: "settingsSection",
+      label: "Open Settings",
+      hint: "Check Telegram bot token, API ID, API HASH, and channel settings.",
+    };
+  }
+  if (text.includes("source") || text.includes("rss") || text.includes("feed") || text.includes("http")) {
+    return {
+      section: "sourcesSection",
+      label: "Open Sources",
+      hint: "Check source URLs, templates, and whether the source is enabled.",
+    };
+  }
+  return {
+    section: "dashboardSection",
+    label: "Open Dashboard",
+    hint: "Refresh the dashboard and inspect the latest pipeline run.",
+  };
+}
+
+function renderErrorLogsPanel() {
+  const lines = (state.errorLogs || []).slice(-6).reverse();
+  const badgeCount = state.errorLogs.length;
+  const badgeText = badgeCount ? `${badgeCount} error${badgeCount === 1 ? "" : "s"}` : "No errors";
+  setStatus("#errorLogsBadge", badgeCount ? "ERROR" : "OK", badgeText);
+  setText(
+    "#errorLogsSummary",
+    badgeCount
+      ? "Each item below links to the area most likely to fix the issue."
+      : "No errors recorded yet. When something fails, the related fix path will appear here."
+  );
+
+  if (!lines.length) {
+    setHtml("#errorLogsList", `<div class="empty-state">No error lines to review yet.</div>`);
+    return;
+  }
+
+  setHtml(
+    "#errorLogsList",
+    lines
+      .map((line) => {
+        const fix = logFixHint(line);
+        return `
+          <div class="live-item">
+            <span class="live-dot"></span>
+            <div>
+              <div class="live-title">Failed task</div>
+              <div class="live-meta">${escapeHtml(line)}</div>
+              <div class="live-meta">${escapeHtml(fix.hint)}</div>
+            </div>
+            <button class="secondary" type="button" data-open-section="${escapeHtml(fix.section)}">${escapeHtml(fix.label)}</button>
+          </div>`;
+      })
+      .join("")
+  );
+}
+
+async function openNewsForEditing(newsId) {
+  if (!hasAdminKey()) {
+    showToast("Add the admin access code in Settings to edit news.", "warn");
+    return;
+  }
+  const item = state.news.find((news) => news.id === newsId);
+  if (!item) {
+    showToast("News item not found.", "warn");
+    return;
+  }
+
+  const existingPost = findPostByNewsId(newsId);
+  if (existingPost) {
+    openSection("postsSection");
+    openPostModal(existingPost.id);
+    return;
+  }
+
+  const done = withButtonState(document.querySelector(`[data-edit-news="${newsId}"]`), "Loading...");
+  try {
+    const post = await api(`/api/news/${newsId}/generate-demo`, { method: "POST" });
+    await loadPrivateData();
+    renderAll();
+    openSection("postsSection");
+    openPostModal(post.id);
+    done("success", "Opened");
+    showToast("Draft opened for editing", "ok");
+  } catch (error) {
+    done("error", "Error");
+    showToast(`Could not open the draft: ${error.message}`, "error");
+  }
+}
+
+async function sendNewsToTelegram(newsId) {
+  if (!hasAdminKey()) {
+    showToast("Add the admin access code in Settings to send news to Telegram.", "warn");
+    return;
+  }
+  const newsButton = document.querySelector(`[data-send-news="${newsId}"]`);
+  const done = withButtonState(newsButton, "Sending...");
+  try {
+    await api(`/api/news/${newsId}/publish-telegram`, { method: "POST" });
+    await loadPrivateData();
+    renderAll();
+    done("success", "Sent");
+    openSection("postsSection");
+    showToast("News queued for Telegram", "ok");
+  } catch (error) {
+    done("error", "Error");
+    showToast(`Could not send news: ${error.message}`, "error");
+  }
+}
+
 function renderDashboard() {
   const context = pipelineContext();
   const meta = context.meta || {};
   const collected = meta.new_items ?? state.news.length;
-  const filtered = meta.queued_for_ai ?? state.posts.filter((post) => ["generated", "pending_approval", "published"].includes(post.status)).length;
+  const filtered = meta.ready_for_generation ?? meta.queued_for_ai ?? state.posts.filter((post) => ["generated", "pending_approval", "published"].includes(post.status)).length;
   const generated = state.posts.filter((post) => ["generated", "pending_approval", "published"].includes(post.status)).length;
   const published = state.posts.filter((post) => post.status === "published").length;
   const failed =
@@ -1306,18 +1599,20 @@ function renderDashboard() {
   }
 
   const startBtn = $("#startPipelineBtn");
-  const stopBtn = $("#stopPipelineBtn");
   const parseBtn = $("#parseNewsBtn");
   const generateBtn = $("#generatePostsBtn");
   const publishBtn = $("#publishPendingBtn");
+  const undoBtn = $("#undoDashboardBtn");
   if (startBtn) startBtn.disabled = !hasAdminKey() || context.running;
-  if (stopBtn) stopBtn.disabled = !hasAdminKey() || !context.running;
-  if (parseBtn) parseBtn.disabled = !hasAdminKey();
-  if (generateBtn) generateBtn.disabled = !hasAdminKey();
-  if (publishBtn) publishBtn.disabled = !hasAdminKey();
+  if (parseBtn) parseBtn.disabled = !hasAdminKey() || context.running;
+  if (generateBtn) generateBtn.disabled = !hasAdminKey() || context.running || !state.news.length;
+  if (publishBtn) publishBtn.disabled = !hasAdminKey() || context.running || !state.posts.some((post) => post.status === "generated" || post.status === "pending_approval");
+  if (undoBtn) undoBtn.disabled = false;
 
   renderPipelineStepper();
   renderLiveFeed();
+  renderErrorLogsPanel();
+  renderNewsQueue();
 }
 
 function renderOpenAIStatus() {
@@ -1420,9 +1715,9 @@ function renderLockedPrivateBlocks() {
   renderPlaceholder("#postsTableBody", "Enter the admin access code to view generated posts.", 4);
   renderPlaceholder("#sourcesTableBody", "Enter the admin access code to manage sources.", 5);
   setHtml("#postsSummary", "");
-  setStatus("#sourcesStatus", "WAIT", "Sources not added yet");
+  setStatus("#sourcesStatus", "WAIT", "Source is not ready yet");
   setStatus("#sourcesCount", "WAIT", "Sources added: 0");
-  setText("#pipelineStatusBadge", "Stopped");
+  setText("#pipelineStatusBadge", "Ready");
   setText("#pipelineStatusMessage", "Enter the admin access code in Settings to unlock the pipeline.");
   setText("#quickActionNote", "Enter the admin access code in Settings to unlock private actions.");
 }
@@ -1518,14 +1813,16 @@ function renderAll() {
   }
 }
 
-async function startPipeline() {
+async function startPipeline({ openDashboard = true } = {}) {
   if (!hasAdminKey()) {
     showToast("Add the admin access code in Settings to start the pipeline.", "warn");
     return;
   }
   const done = withButtonState($("#startPipelineBtn"), "Starting...");
   try {
-    state.uiPaused = false;
+    if (openDashboard) {
+      openSection("dashboardSection");
+    }
     state.pipelineStepFocus = "Pipeline Started";
     const result = await api("/api/pipeline/run", { method: "POST" });
     state.pipelineTaskId = result.task_id;
@@ -1547,41 +1844,8 @@ async function startPipeline() {
   }
 }
 
-async function stopPipeline() {
-  if (!hasAdminKey()) {
-    showToast("Add the admin access code in Settings to stop the pipeline.", "warn");
-    return;
-  }
-  const done = withButtonState($("#stopPipelineBtn"), "Stopping...");
-  try {
-    const result = await api("/api/pipeline/stop", { method: "POST" });
-    state.uiPaused = true;
-    state.pipelineStatus = {
-      ...(state.pipelineStatus || {}),
-      task_state: "REVOKED",
-      task_meta: {
-        ...(state.pipelineStatus?.task_meta || {}),
-        pipeline_running: false,
-        stopped: true,
-        stage_label: "Stopped",
-      },
-      task_result: {
-        ...(state.pipelineStatus?.task_meta || {}),
-        ...(state.pipelineStatus?.task_result || {}),
-        stopped: true,
-      },
-    };
-    renderDashboard();
-    done("success", "Stopped");
-    showToast(result.message || "Pipeline stopped", "ok");
-    await loadPrivateData().catch(() => null);
-    renderAll();
-  } catch (error) {
-    done("error", "Error");
-    setStatus("#pipelineStatusBadge", "ERROR", "Error");
-    setText("#pipelineStatusMessage", error.message);
-    showToast(`Could not stop pipeline: ${error.message}`, "error");
-  }
+async function startPipelineFromSource() {
+  await startPipeline({ openDashboard: true });
 }
 
 async function pollPipeline(taskId) {
@@ -1590,34 +1854,13 @@ async function pollPipeline(taskId) {
 
   const timer = window.setInterval(async () => {
     try {
-      let status = await api(`/api/pipeline/status?task_id=${encodeURIComponent(taskId)}`);
-      if (status.task_state === "REVOKED" && state.uiPaused && state.pipelineStatus) {
-        status = {
-          ...state.pipelineStatus,
-          task_state: "REVOKED",
-          task_meta: {
-            ...(state.pipelineStatus.task_meta || {}),
-            stopped: true,
-          },
-          task_result: {
-            ...(state.pipelineStatus.task_meta || {}),
-            ...(state.pipelineStatus.task_result || {}),
-            stopped: true,
-          },
-        };
-      }
+      const status = await api(`/api/pipeline/status?task_id=${encodeURIComponent(taskId)}`);
       state.pipelineStatus = status;
       renderDashboard();
-      const stopped = status.task_state === "REVOKED" || Boolean(status.task_result?.stopped || status.task_meta?.stopped);
-      if (status.task_state === "SUCCESS" || status.task_state === "FAILURE" || stopped) {
-        window.clearInterval(timer);
-        state.taskTimers.delete(taskId);
-        state.pipelineStepFocus = stopped
-          ? status.task_result?.stage_key || status.task_meta?.stage_key || state.pipelineStepFocus
-          : status.task_state === "SUCCESS"
-            ? "Completed"
-            : state.pipelineStepFocus;
-        showToast(pipelineToastMessage(status, stopped), stopped ? "warn" : status.task_state === "SUCCESS" ? "ok" : "error");
+      if (status.task_state === "SUCCESS" || status.task_state === "FAILURE") {
+        clearPipelinePoll(taskId);
+        state.pipelineStepFocus = status.task_state === "SUCCESS" ? "Completed" : state.pipelineStepFocus;
+        showToast(pipelineToastMessage(status), status.task_state === "SUCCESS" ? "ok" : "error");
         state.pipelineTaskId = "";
         sessionStorage.removeItem("pipelineTaskId");
         await loadPrivateData().catch(() => null);
@@ -1630,6 +1873,18 @@ async function pollPipeline(taskId) {
   }, 1800);
 
   state.taskTimers.set(taskId, timer);
+}
+
+function undoDashboardView() {
+  state.postStatusFilter = "";
+  state.selectedPostId = "";
+  state.pipelineStepFocus = "";
+  resetDashboardView({ scroll: false });
+  closeAllDialogs();
+  openSection("dashboardSection", { scroll: false });
+  renderAll();
+  window.scrollTo({ top: 0, behavior: "smooth" });
+  showToast("Dashboard view reset", "ok");
 }
 
 async function addTheme(event) {
@@ -1884,20 +2139,20 @@ async function publishPost(postId, generatedText = "") {
     showToast("Add the admin access code in Settings to publish posts.", "warn");
     return;
   }
-  const done = withButtonState($("#publishPostBtn"), "Publishing...");
+  const done = withButtonState($("#publishPostBtn"), "Sending...");
   try {
     await api(`/api/posts/${postId}/approve`, {
       method: "POST",
       body: JSON.stringify({ generated_text: generatedText }),
     });
-    done("success", "Published");
+    done("success", "Sent");
     await loadPrivateData();
     renderAll();
     openPostModal(postId);
-    showToast("Post published", "ok");
+    showToast("Post sent to Telegram", "ok");
   } catch (error) {
     done("error", "Error");
-    showToast(`Could not publish post: ${error.message}`, "error");
+    showToast(`Could not send post: ${error.message}`, "error");
   }
 }
 
@@ -1930,7 +2185,7 @@ async function generateLatestPost() {
   const candidate = [...state.news].sort((left, right) => new Date(right.published_at) - new Date(left.published_at))[0];
   if (!candidate) {
     done("warn", "No news");
-    showToast("No news found. Parse sources first.", "warn");
+    showToast("No news found. Fetch news first.", "warn");
     return;
   }
   try {
@@ -1951,11 +2206,11 @@ async function publishPendingPost() {
     showToast("Add the admin access code in Settings to publish posts.", "warn");
     return;
   }
-  const done = withButtonState($("#publishPendingBtn"), "Publishing...");
+  const done = withButtonState($("#publishPendingBtn"), "Sending...");
   const candidate = [...state.posts].find((post) => post.status === "generated" || post.status === "pending_approval");
   if (!candidate) {
     done("warn", "No posts");
-    showToast("No pending posts to publish.", "warn");
+    showToast("No pending posts to send.", "warn");
     return;
   }
   const text = candidate.generated_text || candidate.news?.summary || candidate.news?.raw_text || "";
@@ -1964,14 +2219,14 @@ async function publishPendingPost() {
       method: "POST",
       body: JSON.stringify({ generated_text: text }),
     });
-    done("success", "Published");
+    done("success", "Sent");
     await loadPrivateData();
     renderAll();
     openSection("postsSection");
-    showToast("Pending post published", "ok");
+    showToast("Pending post sent to Telegram", "ok");
   } catch (error) {
     done("error", "Error");
-    showToast(`Could not publish pending post: ${error.message}`, "error");
+    showToast(`Could not send pending post: ${error.message}`, "error");
   }
 }
 
@@ -2115,14 +2370,16 @@ function bindEvents() {
   });
 
   $("#openSourceModalBtn")?.addEventListener("click", () => openSourceModal());
+  $("#openReadyTemplatesBtn")?.addEventListener("click", () => openSourceTemplatesLibrary({ focusSearch: true, expandAll: true }));
   $("#manageSourcesBtn")?.addEventListener("click", () => {
     document.getElementById("sourcesManagementPanel")?.scrollIntoView({ behavior: "smooth", block: "start" });
   });
   $("#startPipelineBtn")?.addEventListener("click", startPipeline);
-  $("#stopPipelineBtn")?.addEventListener("click", stopPipeline);
+  $("#startPipelineFromSourceBtn")?.addEventListener("click", startPipelineFromSource);
   $("#parseNewsBtn")?.addEventListener("click", startPipeline);
   $("#generatePostsBtn")?.addEventListener("click", generateLatestPost);
   $("#publishPendingBtn")?.addEventListener("click", publishPendingPost);
+  $("#undoDashboardBtn")?.addEventListener("click", undoDashboardView);
   $("#refreshBtn")?.addEventListener("click", async () => {
     const done = withButtonState($("#refreshBtn"), "Refreshing...");
     try {
@@ -2150,9 +2407,25 @@ function bindEvents() {
   $("#sourceType")?.addEventListener("change", renderSourceModalState);
   $("#sourceEnabled")?.addEventListener("change", renderSourceModalState);
   $("#sourceTemplateSearch")?.addEventListener("input", (event) => {
-    state.sourceTemplateQuery = event.target.value;
-    writeJson(SOURCE_TEMPLATE_QUERY_KEY, state.sourceTemplateQuery);
-    renderSourceTemplates();
+    state.sourceTemplateDraftQuery = event.target.value;
+  });
+  $("#sourceTemplateSearch")?.addEventListener("keydown", (event) => {
+    if (event.key === "Enter") {
+      event.preventDefault();
+      searchSourceTemplates();
+    }
+  });
+  $("#runSourceTemplateSearchBtn")?.addEventListener("click", async () => {
+    const done = withButtonState($("#runSourceTemplateSearchBtn"), "Searching...");
+    try {
+      searchSourceTemplates();
+      const resultCount = mergedSourceSuggestions("site").length + mergedSourceSuggestions("tg").length;
+      done("success", resultCount ? `${resultCount} results` : "No results");
+      showToast(resultCount ? `Search complete: ${resultCount} templates found` : "No templates matched your search", resultCount ? "ok" : "warn");
+    } catch (error) {
+      done("error", "Error");
+      showToast(`Could not search templates: ${error.message}`, "error");
+    }
   });
 
   $("#apiKey")?.addEventListener("input", () => {
@@ -2215,6 +2488,10 @@ function bindEvents() {
         window.requestAnimationFrame(() => {
           document.getElementById("pipelineLiveFeedCard")?.scrollIntoView({ behavior: "smooth", block: "center" });
         });
+      } else if (target.dataset.focusPanel === "newsQueue") {
+        window.requestAnimationFrame(() => {
+          document.getElementById("newsQueueCard")?.scrollIntoView({ behavior: "smooth", block: "center" });
+        });
       }
       return;
     }
@@ -2232,6 +2509,16 @@ function bindEvents() {
       const items = mergedSourceSuggestions(type);
       const suggestion = items[index];
       if (suggestion) fillSourceFormFromSuggestion(suggestion, type);
+      return;
+    }
+
+    if (target.dataset.editNews) {
+      await openNewsForEditing(target.dataset.editNews);
+      return;
+    }
+
+    if (target.dataset.sendNews) {
+      await sendNewsToTelegram(target.dataset.sendNews);
       return;
     }
 

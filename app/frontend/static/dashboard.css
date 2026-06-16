@@ -254,9 +254,8 @@ small,
   background: rgba(15, 23, 42, 0.92);
   box-shadow: var(--shadow);
   backdrop-filter: blur(18px);
-  position: sticky;
-  top: 0.7rem;
-  z-index: 25;
+  position: static;
+  z-index: 5;
 }
 
 .brand {
@@ -300,8 +299,29 @@ small,
 
 .button-grid {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
   width: 100%;
+}
+
+.button-grid,
+.stats-grid {
+  grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+}
+
+.button-row {
+  flex-wrap: wrap;
+}
+
+.button-row button {
+  flex: 1 1 170px;
+}
+
+.post-modal-actions {
+  justify-content: flex-end;
+}
+
+.post-modal-actions button {
+  flex: 0 1 210px;
+  min-width: 180px;
 }
 
 .app-shell {
@@ -396,13 +416,14 @@ small,
 }
 
 .section > summary::after,
-.subdetails > summary::after {
+.subdetails > summary::after,
+.source-accordion > summary::after,
+.live-accordion > summary::after {
   content: "⌄";
-  position: absolute;
-  right: 1rem;
   color: var(--accent);
   font-size: 2rem;
   line-height: 1;
+  margin-left: 0.35rem;
 }
 
 details[open] > summary::after {
@@ -422,6 +443,76 @@ details[open] > summary::after {
   letter-spacing: 0.12em;
   color: var(--muted);
   white-space: nowrap;
+}
+
+.live-accordion {
+  overflow: hidden;
+}
+
+.live-accordion.dashboard-card {
+  padding: 0;
+}
+
+.live-accordion > summary {
+  cursor: pointer;
+  list-style: none;
+  user-select: none;
+  min-height: 68px;
+  padding: 0.95rem 1rem;
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 0.8rem;
+  align-items: center;
+  text-align: center;
+  font-size: 1.08rem;
+  font-weight: 900;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  position: relative;
+  border-bottom: 1px solid rgba(15, 23, 42, 0.06);
+}
+
+.live-accordion > summary::-webkit-details-marker {
+  display: none;
+}
+
+.live-accordion > summary > div:first-child {
+  display: grid;
+  gap: 0.1rem;
+}
+
+.live-accordion-body {
+  padding: 1rem;
+}
+
+.live-summary-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 0.75rem;
+  margin-bottom: 0.8rem;
+}
+
+.live-summary-tile {
+  display: grid;
+  gap: 0.25rem;
+  padding: 0.78rem 0.85rem;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: rgba(15, 23, 42, 0.72);
+}
+
+.live-summary-tile span {
+  color: var(--muted);
+  font-size: 0.76rem;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  font-weight: 800;
+}
+
+.live-summary-tile strong {
+  font-size: 0.98rem;
+  line-height: 1.35;
 }
 
 #dashboardSection > summary {
@@ -511,12 +602,21 @@ details[open] > summary::after {
 }
 
 .dashboard-card--pipeline,
+.dashboard-card--stats,
 .dashboard-card--live {
-  grid-column: span 2;
+  grid-column: 1 / -1;
+}
+
+.dashboard-card--news {
+  grid-column: 1 / -1;
+}
+
+.dashboard-card--logs {
+  grid-column: 1 / -1;
 }
 
 .panel--wide {
-  grid-column: span 2;
+  grid-column: 1 / -1;
 }
 
 .filters-grid,
@@ -546,7 +646,7 @@ details[open] > summary::after {
 
 .stats-grid {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns: repeat(5, minmax(0, 1fr));
 }
 
 .stat-tile {
@@ -650,7 +750,7 @@ details[open] > summary::after {
 .stepper {
   margin-top: 1rem;
   display: grid;
-  grid-template-columns: repeat(7, minmax(0, 1fr));
+  grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 0.5rem;
 }
 
@@ -983,6 +1083,50 @@ details[open] > summary::after {
   align-items: stretch;
 }
 
+.source-state-button {
+  min-width: 220px;
+  justify-content: flex-start;
+  text-align: left;
+}
+
+.source-state-button.is-ready {
+  color: #06391f;
+  background: linear-gradient(180deg, rgba(34, 197, 94, 0.96), rgba(74, 222, 128, 0.82));
+  border-color: rgba(34, 197, 94, 0.38);
+}
+
+.source-state-button.is-wait {
+  color: #4a2d00;
+  background: linear-gradient(180deg, rgba(245, 158, 11, 0.9), rgba(251, 191, 36, 0.8));
+  border-color: rgba(245, 158, 11, 0.3);
+}
+
+.source-state-indicator {
+  width: 0.72rem;
+  height: 0.72rem;
+  border-radius: 50%;
+  background: currentColor;
+  box-shadow: 0 0 0 4px rgba(255, 255, 255, 0.14);
+  flex: 0 0 auto;
+}
+
+.source-state-copy {
+  display: grid;
+  gap: 0.1rem;
+  align-items: start;
+}
+
+.source-state-copy strong {
+  line-height: 1.1;
+}
+
+.source-state-copy small {
+  display: block;
+  font-weight: 700;
+  color: inherit;
+  opacity: 0.9;
+}
+
 .source-hero-chips,
 .filters-hero-chips {
   flex-wrap: wrap;
@@ -1011,7 +1155,7 @@ details[open] > summary::after {
   padding: 0.85rem 1rem;
   display: flex;
   align-items: center;
-  justify-content: space-between;
+  justify-content: center;
   gap: 0.75rem;
   position: relative;
   text-align: left;
@@ -1026,20 +1170,18 @@ details[open] > summary::after {
 
 .source-accordion > summary::after {
   content: "⌄";
-  position: absolute;
-  right: 1rem;
   color: var(--accent);
   font-size: 1.6rem;
   line-height: 1;
 }
 
 .source-accordion > summary > small {
-  padding-right: 1.65rem;
   font-size: 0.76rem;
   text-transform: uppercase;
   letter-spacing: 0.11em;
   color: var(--muted);
   white-space: nowrap;
+  opacity: 0.95;
 }
 
 .source-accordion-body {
@@ -1051,12 +1193,53 @@ details[open] > summary::after {
   margin-top: 1rem;
   display: grid;
   gap: 0.65rem;
-  justify-items: end;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
 }
 
-.source-footer .status-button,
+.source-footer-state {
+  display: grid;
+  gap: 0.5rem;
+  min-width: 0;
+}
+
+.source-search-status-row {
+  margin-top: 0.6rem;
+  display: flex;
+  justify-content: space-between;
+  gap: 0.75rem;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.source-search-status-row .status {
+  flex: 1 1 320px;
+}
+
+.source-search-status-row .workflow-primary {
+  min-width: 180px;
+  justify-self: flex-end;
+}
+
+.source-footer-actions {
+  display: flex;
+  gap: 0.65rem;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+.source-footer-actions button {
+  min-width: 180px;
+}
+
+.source-readiness-status {
+  min-width: 0;
+}
+
 .source-footer .secondary {
   width: min(100%, 320px);
+  justify-self: end;
+  align-self: center;
 }
 
 .filters-hero-chips {
@@ -1294,6 +1477,54 @@ small {
   min-width: 0;
 }
 
+.sources-manager-panel {
+  width: 100%;
+}
+
+.source-form-stack {
+  gap: 0.85rem;
+}
+
+.source-edit-banner {
+  margin-bottom: 0.9rem;
+}
+
+.source-form-actions {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+  margin-top: 0.5rem;
+}
+
+.source-form-actions .workflow-primary {
+  min-width: 180px;
+}
+
+.post-cover-preview {
+  margin-bottom: 0.8rem;
+  display: grid;
+  gap: 0.55rem;
+}
+
+.post-cover-preview img {
+  width: 100%;
+  aspect-ratio: 16 / 9;
+  object-fit: cover;
+  border-radius: 16px;
+  border: 1px solid var(--line);
+  background: linear-gradient(135deg, rgba(96, 165, 250, 0.18), rgba(52, 211, 153, 0.12));
+}
+
+.post-cover-fallback {
+  padding: 0.9rem 1rem;
+  border: 1px dashed rgba(148, 163, 184, 0.28);
+  border-radius: 16px;
+  color: var(--muted);
+  background: rgba(15, 23, 42, 0.6);
+}
+
 @media (max-width: 1200px) {
   .app-shell {
     grid-template-columns: 1fr;
@@ -1334,19 +1565,41 @@ small {
     align-items: flex-start;
   }
 
+  .stats-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
   .source-hero-actions,
   .source-hero-chips,
   .filters-hero-chips {
     justify-content: flex-start;
   }
 
-  .source-footer {
-    justify-items: stretch;
+  .live-summary-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
-  .source-footer .status-button,
+  .source-footer {
+    grid-template-columns: 1fr;
+  }
+
   .source-footer .secondary {
     width: 100%;
+    justify-self: stretch;
+  }
+
+  .source-state-button,
+  .source-form-actions .workflow-primary {
+    width: 100%;
+  }
+
+  .source-footer-actions {
+    justify-content: stretch;
+  }
+
+  .source-footer-actions button {
+    width: 100%;
+    min-width: 0;
   }
 }
 
@@ -1366,6 +1619,14 @@ small {
 
   .stepper {
     grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .stats-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .live-summary-grid {
+    grid-template-columns: 1fr;
   }
 
   .data-table thead {

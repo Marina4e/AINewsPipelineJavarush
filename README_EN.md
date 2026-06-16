@@ -2,6 +2,13 @@
 
 AI News Pipeline collects news from RSS and Telegram, stores it in PostgreSQL, prepares materials through AI or manual editing, and publishes approved content to Telegram.
 
+Current manual dashboard flow:
+
+- `Start Pipeline` fetches news only from enabled sources
+- `Fetch News` is the guided dashboard action for the same collection step
+- `Generate Post (AI)` creates one draft only after an explicit click
+- `Send to Telegram` publishes the approved or pending post manually
+
 The project is designed so that AI is optional:
 
 - the platform works without `OPENAI_API_KEY`

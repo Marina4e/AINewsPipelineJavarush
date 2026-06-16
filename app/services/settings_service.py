@@ -5,7 +5,6 @@ from app.models import AppSetting
 
 AUTO_PUBLISH_KEY = "auto_publish_posts"
 PIPELINE_CURRENT_TASK_ID_KEY = "pipeline_current_task_id"
-PIPELINE_STOP_TASK_ID_KEY = "pipeline_stop_task_id"
 
 
 def _to_bool(value: str | bool | None) -> bool:
@@ -50,17 +49,3 @@ def get_pipeline_current_task_id(db: Session) -> str:
 
 def set_pipeline_current_task_id(db: Session, task_id: str | None) -> AppSetting:
     return _set_setting(db, PIPELINE_CURRENT_TASK_ID_KEY, str(task_id or "").strip())
-
-
-def get_pipeline_stop_task_id(db: Session) -> str:
-    setting = _get_setting(db, PIPELINE_STOP_TASK_ID_KEY)
-    return setting.value.strip() if setting and setting.value else ""
-
-
-def set_pipeline_stop_task_id(db: Session, task_id: str | None) -> AppSetting:
-    return _set_setting(db, PIPELINE_STOP_TASK_ID_KEY, str(task_id or "").strip())
-
-
-def should_stop_pipeline(db: Session, pipeline_task_id: str | None) -> bool:
-    active_task_id = get_pipeline_stop_task_id(db)
-    return bool(active_task_id and pipeline_task_id and active_task_id == pipeline_task_id)
