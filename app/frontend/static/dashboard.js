@@ -102,6 +102,7 @@ const state = {
   pipelineTaskId: sessionStorage.getItem("pipelineTaskId") || "",
   pipelineStepFocus: "",
   postStatusFilter: "",
+  logFilter: "all",
   selectedPostId: "",
   sourceTemplateQuery: readJson(SOURCE_TEMPLATE_QUERY_KEY, ""),
   sourceTemplateDraftQuery: readJson(SOURCE_TEMPLATE_QUERY_KEY, ""),
@@ -774,24 +775,59 @@ function renderNewsRow(item) {
 }
 
 function renderNewsQueue() {
-  const body = $("#newsQueueTableBody");
+  const body = $("#errorTasksTableBody");
   const badge = $("#newsQueueBadge");
   if (!body || !badge) return;
 
-  const items = [...state.news].sort((left, right) => new Date(right.published_at) - new Date(left.published_at));
-  setStatus("#newsQueueBadge", items.length ? "OK" : "WAIT", items.length ? `${items.length} item${items.length === 1 ? "" : "s"}` : "0 items");
+  const failedPosts = state.posts
+    .filter((post) => post.status === "failed" || post.status === "rejected" || post.error)
+    .sort((left, right) => new Date(right.updated_at || right.created_at || 0) - new Date(left.updated_at || left.created_at || 0));
+  const failedSources = state.sources.filter((source) => source.last_error);
+  const failedLines = (state.errorLogs || []).slice(-5).reverse();
+  const rows = [
+    ...failedPosts.map((post) => ({
+      task: `Post ${post.news?.title || post.id.slice(0, 8)}`,
+      error: post.error || post.generated_text || "Failed to publish",
+      date: formatDate(post.updated_at || post.created_at),
+      action: post.news_id ? `<button class="secondary failed-task-action" type="button" data-open-post-id="${escapeHtml(post.id)}">Review</button>` : "",
+    })),
+    ...failedSources.map((source) => ({
+      task: `Source ${source.name}`,
+      error: source.last_error || "Source error",
+      date: formatDate(source.updated_at || source.created_at),
+      action: `<button class="secondary failed-task-action" type="button" data-open-section="sourcesSection">Open Sources</button>`,
+    })),
+    ...failedLines.map((line, index) => ({
+      task: `Log entry ${index + 1}`,
+      error: line,
+      date: formatShortTime(new Date()),
+      action: `<button class="secondary failed-task-action" type="button" data-open-section="dashboardSection">Open Dashboard</button>`,
+    })),
+  ];
+
+  setStatus("#newsQueueBadge", rows.length ? "ERROR" : "OK", rows.length ? `${rows.length} failed` : "No failures");
 
   if (!hasAdminKey()) {
-    renderPlaceholder("#newsQueueTableBody", "Enter the admin access code to review collected news.", 4);
+    renderPlaceholder("#errorTasksTableBody", "Enter the admin access code to review failed tasks.", 4);
     return;
   }
 
-  if (!items.length) {
-    renderPlaceholder("#newsQueueTableBody", "No collected news yet. Start the pipeline to fetch items.", 4);
+  if (!rows.length) {
+    renderPlaceholder("#errorTasksTableBody", "No failed tasks yet.", 4);
     return;
   }
 
-  body.innerHTML = items.map(renderNewsRow).join("");
+  body.innerHTML = rows
+    .map(
+      (row) => `
+        <tr>
+          <td data-label="Task">${escapeHtml(row.task)}</td>
+          <td data-label="Error">${escapeHtml(row.error)}</td>
+          <td data-label="Date">${escapeHtml(row.date)}</td>
+          <td data-label="Action">${row.action}</td>
+        </tr>`
+    )
+    .join("");
 }
 
 function openSourceTemplatesLibrary({ focusSearch = false, expandAll = true } = {}) {
@@ -1127,32 +1163,37 @@ function renderPostRow(post) {
   const headline = post.news?.title || `Post ${post.id.slice(0, 8)}`;
   const source = post.news?.source || "—";
   const createdAt = post.created_at || post.updated_at;
+  const preview = post.generated_text || post.news?.summary || post.news?.raw_text || "No generated text yet.";
   return `
     <tr data-open-post-id="${escapeHtml(post.id)}">
       <td data-label="Title">
         <div class="post-row-title">
           <div class="row-title">${escapeHtml(headline)}</div>
-          <div class="row-subtle">${escapeHtml(post.news?.summary || post.generated_text || "No preview available.")}</div>
+          <div class="row-subtle">${escapeHtml(preview)}</div>
         </div>
       </td>
       <td data-label="Source">
         <div class="row-title">${escapeHtml(source)}</div>
+        <div class="row-subtle">${escapeHtml(post.news?.source_url || post.news?.url || "—")}</div>
       </td>
+      <td data-label="Date">${escapeHtml(formatDate(createdAt))}</td>
       <td data-label="Status">
         <span class="badge post-status post-status--${escapeHtml(info.tone)}">${escapeHtml(info.label)}</span>
       </td>
-      <td data-label="Created At">${escapeHtml(formatDate(createdAt))}</td>
     </tr>`;
 }
 
 function renderPosts() {
-  const body = $("#postsTableBody");
-  const summary = $("#postsSummary");
-  if (!body || !summary) return;
+  const bodies = [$("#dashboardPostsTableBody"), $("#postsTableBody")].filter(Boolean);
+  const filters = document.querySelectorAll("[data-post-filter]");
+  if (!bodies.length) return;
 
   if (!hasAdminKey()) {
+    bodies.forEach((body) => {
+      body.innerHTML = "";
+    });
+    renderPlaceholder("#dashboardPostsTableBody", "Enter the admin access code to view generated posts.", 4);
     renderPlaceholder("#postsTableBody", "Enter the admin access code to view generated posts.", 4);
-    setHtml("#postsSummary", "");
     return;
   }
 
@@ -1165,72 +1206,54 @@ function renderPosts() {
     : state.posts;
 
   if (!filteredPosts.length) {
+    bodies.forEach((body) => {
+      body.innerHTML = "";
+    });
+    renderPlaceholder("#dashboardPostsTableBody", state.postStatusFilter ? "No posts match this status filter." : "No posts yet. Fetch news and then generate the first draft.", 4);
     renderPlaceholder("#postsTableBody", state.postStatusFilter ? "No posts match this status filter." : "No posts yet. Fetch news and then generate the first draft.", 4);
   } else {
     const sorted = [...filteredPosts].sort((left, right) => new Date(right.created_at) - new Date(left.created_at));
-    body.innerHTML = sorted.map(renderPostRow).join("");
+    const html = sorted.map(renderPostRow).join("");
+    bodies.forEach((body) => {
+      body.innerHTML = html;
+    });
   }
 
-  const counts = postSummaryCounts(state.posts);
-  setHtml(
-    "#postsSummary",
-    [
-      `<button type="button" class="status status--run" data-post-filter="new">New: ${counts.new}</button>`,
-      `<button type="button" class="status status--wait" data-post-filter="generated">Generated: ${counts.generated}</button>`,
-      `<button type="button" class="status status--ok" data-post-filter="published">Published: ${counts.published}</button>`,
-      `<button type="button" class="status status--error" data-post-filter="failed">Failed: ${counts.failed}</button>`,
-      state.postStatusFilter ? `<button type="button" class="status slim" data-post-filter="">Show all</button>` : "",
-    ].join("")
-  );
+  filters.forEach((button) => {
+    const target = button.dataset.postFilter || "";
+    button.classList.toggle("is-active", target === state.postStatusFilter);
+  });
 }
 
 function renderPipelineStepper() {
   const context = pipelineContext();
   const meta = context.meta || {};
-  const stages = meta.stages || {};
-  const currentKey = meta.stage_key || state.pipelineStepFocus || "Pipeline Started";
-  const statusState = context.running ? "running" : context.failed ? "failed" : "pending";
-
-  setHtml(
-    "#pipelineStepper",
-    PIPELINE_STEPS.map((step) => {
-      const stageState = stages[step.key] || "pending";
-      const isCurrent = step.key === currentKey || (step.key === "Completed" && context.status.task_state === "SUCCESS");
-      const tone = pipelineTone(stageState);
-      return `
-        <div class="step ${tone} ${isCurrent ? "is-active" : ""}">
-          <span class="step-label">${escapeHtml(step.label)}</span>
-          <span class="step-state">${escapeHtml(translateStageState(stageState))}</span>
-          <span class="step-state">${escapeHtml(stageExplanation(step.key, stageState))}</span>
-        </div>`;
-    }).join("")
-  );
-
   const buttonLocked = !hasAdminKey();
   const startBtn = $("#startPipelineBtn");
   if (startBtn) startBtn.disabled = buttonLocked || context.running;
 
-  const badgeText = context.running ? "Running" : context.failed ? "Error" : context.status.task_state === "SUCCESS" ? "Done" : "Ready";
+  const badgeText = context.running ? "Running" : context.failed ? "Error" : context.status.task_state === "SUCCESS" ? "Success" : "Waiting";
   const badgeToken = context.running ? "RUN" : context.failed ? "ERROR" : context.status.task_state === "SUCCESS" ? "OK" : "WAIT";
   setStatus("#pipelineStatusBadge", badgeToken, badgeText);
+  setStatus("#pipelineLiveBadge", badgeToken, badgeText);
 
   let message = pipelineOutcomeMessage(meta, context);
   if (buttonLocked) {
     message = "Enter the admin access code in Settings to unlock the pipeline.";
   }
   setText("#pipelineStatusMessage", message);
-  setText("#pipelineInsight", statusExplanation(badgeText));
+  setText("#pipelineLiveSummary", message);
 
-  const note = [];
-  if (!state.sources.length) note.push("Add at least one source to unlock the workflow.");
-  if (state.sources.some((source) => source.type === "tg")) note.push("Telegram sources are included in the scenario.");
-  if (state.settingsDraft.language) note.push(`Language: ${state.settingsDraft.language}.`);
-  if (state.settingsDraft.duplicateDetection) note.push("Duplicate detection is enabled.");
-  if (state.settingsDraft.sourceFiltering) note.push("Source filtering is enabled.");
-  note.unshift("Guided workflow: Fetch News → Generate Post → Review → Send to Telegram.");
-  setText("#quickActionNote", note.join(" "));
+  const statusLabel = context.running ? "Running" : context.failed ? "Error" : context.status.task_state === "SUCCESS" ? "Success" : "Waiting";
+  setText("#pipelineLiveCurrentAction", context.running ? "Running now" : "Waiting");
+  setText("#pipelineLiveActiveStage", context.running ? translateStageLabel(meta.stage_label || meta.stage_key || "Pipeline Started") || "Running" : statusLabel);
+  setText("#pipelineLiveLastAction", context.status.task_state ? `Pipeline status: ${statusLabel}` : "No pipeline activity yet.");
+  setText(
+    "#pipelineLiveErrors",
+    context.failed ? "Error" : (state.errorLogs || []).length ? `${state.errorLogs.length} logged` : "No errors"
+  );
 
-  return statusState;
+  return statusLabel.toLowerCase();
 }
 
 function buildActivityRows() {
@@ -1473,24 +1496,33 @@ function logFixHint(line) {
 
 function renderErrorLogsPanel() {
   const lines = (state.errorLogs || []).slice(-6).reverse();
-  const badgeCount = state.errorLogs.length;
-  const badgeText = badgeCount ? `${badgeCount} error${badgeCount === 1 ? "" : "s"}` : "No errors";
-  setStatus("#errorLogsBadge", badgeCount ? "ERROR" : "OK", badgeText);
+  const filter = state.logFilter || "all";
+  const filtered = lines.filter((line) => {
+    const text = String(line || "").toLowerCase();
+    if (filter === "error") return true;
+    if (filter === "warning") return text.includes("warn") || text.includes("warning");
+    if (filter === "info") return !text.includes("error") && !text.includes("warn") && !text.includes("failed");
+    return true;
+  });
   setText(
     "#errorLogsSummary",
-    badgeCount
-      ? "Each item below links to the area most likely to fix the issue."
+    filtered.length
+      ? "Use the filters to narrow down operational logs."
       : "No errors recorded yet. When something fails, the related fix path will appear here."
   );
 
-  if (!lines.length) {
-    setHtml("#errorLogsList", `<div class="empty-state">No error lines to review yet.</div>`);
+  document.querySelectorAll("[data-log-filter]").forEach((button) => {
+    button.classList.toggle("is-active", (button.dataset.logFilter || "all") === filter);
+  });
+
+  if (!filtered.length) {
+    setHtml("#errorLogsList", `<div class="empty-state">No log lines match this filter.</div>`);
     return;
   }
 
   setHtml(
     "#errorLogsList",
-    lines
+    filtered
       .map((line) => {
         const fix = logFixHint(line);
         return `
@@ -1564,8 +1596,8 @@ async function sendNewsToTelegram(newsId) {
 function renderDashboard() {
   const context = pipelineContext();
   const meta = context.meta || {};
-  const collected = meta.new_items ?? state.news.length;
-  const filtered = meta.ready_for_generation ?? meta.queued_for_ai ?? state.posts.filter((post) => ["generated", "pending_approval", "published"].includes(post.status)).length;
+  const sourcesCount = state.sources.length;
+  const articlesFound = meta.new_items ?? state.news.length;
   const generated = state.posts.filter((post) => ["generated", "pending_approval", "published"].includes(post.status)).length;
   const published = state.posts.filter((post) => post.status === "published").length;
   const failed =
@@ -1574,40 +1606,14 @@ function renderDashboard() {
     (state.errorLogs?.length || 0) +
     (context.failed ? 1 : 0);
 
-  setText("#statNewsCollected", String(collected));
-  setText("#statNewsFiltered", String(filtered));
+  setText("#statSources", String(sourcesCount));
+  setText("#statArticlesFound", String(articlesFound));
   setText("#statPostsGenerated", String(generated));
   setText("#statPostsPublished", String(published));
   setText("#statFailedTasks", String(failed));
 
-  if (!hasAdminKey()) {
-    renderPlaceholder("#activityTableBody", "Enter the admin access code to unlock live activity.", 3);
-  } else {
-    setHtml(
-      "#activityTableBody",
-      buildActivityRows()
-        .map(
-          (row) => `
-            <tr>
-              <td data-label="Time">${escapeHtml(row.time)}</td>
-              <td data-label="Action">${escapeHtml(row.action)}</td>
-              <td data-label="Status"><span class="badge badge--${escapeHtml(row.tone)}">${escapeHtml(row.status)}</span></td>
-            </tr>`
-        )
-        .join("") || `<tr><td colspan="3" class="muted">No activity yet.</td></tr>`
-    );
-  }
-
   const startBtn = $("#startPipelineBtn");
-  const parseBtn = $("#parseNewsBtn");
-  const generateBtn = $("#generatePostsBtn");
-  const publishBtn = $("#publishPendingBtn");
-  const undoBtn = $("#undoDashboardBtn");
   if (startBtn) startBtn.disabled = !hasAdminKey() || context.running;
-  if (parseBtn) parseBtn.disabled = !hasAdminKey() || context.running;
-  if (generateBtn) generateBtn.disabled = !hasAdminKey() || context.running || !state.news.length;
-  if (publishBtn) publishBtn.disabled = !hasAdminKey() || context.running || !state.posts.some((post) => post.status === "generated" || post.status === "pending_approval");
-  if (undoBtn) undoBtn.disabled = false;
 
   renderPipelineStepper();
   renderLiveFeed();
@@ -2102,6 +2108,21 @@ function openPostModal(postId) {
   const textarea = $("#postModalGeneratedText");
   if (textarea) textarea.value = generated;
 
+  const coverImage = $("#postModalCoverImage");
+  const coverFallback = $("#postModalCoverFallback");
+  const imageUrl = post.image_url || post.cover_image_url || news?.image_url || news?.cover_image_url || "";
+  if (coverImage && coverFallback) {
+    if (imageUrl) {
+      coverImage.src = imageUrl;
+      coverImage.hidden = false;
+      coverFallback.hidden = true;
+    } else {
+      coverImage.removeAttribute("src");
+      coverImage.hidden = true;
+      coverFallback.hidden = false;
+    }
+  }
+
   const publishBtn = $("#publishPostBtn");
   const regenerateBtn = $("#regeneratePostBtn");
   if (publishBtn) publishBtn.disabled = !hasAdminKey() || post.status === "published";
@@ -2394,6 +2415,13 @@ function bindEvents() {
   $("#verifyOpenaiBtn")?.addEventListener("click", verifyOpenAI);
   $("#checkTelegramBtn")?.addEventListener("click", checkTelegramConnection);
   $("#saveSettingsBtn")?.addEventListener("click", saveSettings);
+
+  document.querySelectorAll("[data-log-filter]").forEach((button) => {
+    button.addEventListener("click", () => {
+      state.logFilter = button.dataset.logFilter || "all";
+      renderErrorLogsPanel();
+    });
+  });
 
   $("#closeSourceModalBtn")?.addEventListener("click", () => closeDialog("#sourceModal"));
   $("#closePostModalBtn")?.addEventListener("click", () => {

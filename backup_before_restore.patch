@@ -1,0 +1,1314 @@
+diff --git a/app/api/endpoints.py b/app/api/endpoints.py
+index 96ea4ed..b3cd04d 100644
+--- a/app/api/endpoints.py
++++ b/app/api/endpoints.py
+@@ -613,6 +613,7 @@ def read_task_status(task_id: str) -> dict:
+ @router.get("/pipeline/status", dependencies=[AdminOnly])
+ def read_pipeline_status(task_id: str | None = None, db: Session = Depends(get_db)) -> dict:
+     # Узагальнений статус потрібен для прогресу конвеєра без перезавантаження сторінки.
++    settings = get_settings()
+     current_task_id = task_id or get_pipeline_current_task_id(db)
+     task_state = None
+     task_meta = {}
+@@ -627,6 +628,30 @@ def read_pipeline_status(task_id: str | None = None, db: Session = Depends(get_d
+         status.value: db.query(Post).filter(Post.status == status).count()
+         for status in PostStatus
+     }
++    ready_for_ai = posts_by_status.get(PostStatus.generated.value, 0) + posts_by_status.get(PostStatus.pending_approval.value, 0)
++    failed_tasks = posts_by_status.get(PostStatus.failed.value, 0) + posts_by_status.get(PostStatus.rejected.value, 0)
++    monitoring = {
++        "celery": {
++            "status": "running" if task_state in {"PENDING", "STARTED", "PROGRESS", "RETRY"} else "idle",
++            "label": "Celery worker running" if task_state in {"PENDING", "STARTED", "PROGRESS", "RETRY"} else "Celery worker ready",
++        },
++        "beat": {
++            "status": "scheduled",
++            "label": f"Celery Beat scheduled every {settings.parser_interval_minutes} min",
++            "interval_minutes": settings.parser_interval_minutes,
++        },
++        "flower": {
++            "status": "available",
++            "label": "Flower available at http://localhost:5555/",
++            "url": "http://localhost:5555/",
++        },
++        "queue": {
++            "ready_for_ai": ready_for_ai,
++            "published": posts_by_status.get(PostStatus.published.value, 0),
++            "failed": failed_tasks,
++            "label": f"{ready_for_ai} ready for AI · {posts_by_status.get(PostStatus.published.value, 0)} published · {failed_tasks} failed",
++        },
++    }
+     return {
+         "current_task_id": current_task_id,
+         "task_state": task_state,
+@@ -635,6 +660,7 @@ def read_pipeline_status(task_id: str | None = None, db: Session = Depends(get_d
+         "news_count": db.query(NewsItem).count(),
+         "posts_by_status": posts_by_status,
+         "telegram_delivered": posts_by_status.get(PostStatus.published.value, 0),
++        "monitoring": monitoring,
+     }
+ 
+ 
+diff --git a/app/frontend/index.html b/app/frontend/index.html
+index 58acb8b..38f2090 100644
+--- a/app/frontend/index.html
++++ b/app/frontend/index.html
+@@ -16,7 +16,7 @@
+       <div class="brand">
+         <p class="eyebrow">AI News Publisher</p>
+         <h1>Генерація AI-новин для сайту та Telegram-боту</h1>
+-        <p class="lead">П'ять зрозумілих блоків для джерел, фільтрів, AI-редагування, публікації та налаштувань.</p>
++        <p class="lead">Один простий потік: запуск, поточний статус, помилки, готові матеріали, публікації, журнали та статистика.</p>
+         <div id="panelStatusNote" class="panel-note">Панель готова до оновлення.</div>
+       </div>
+       <div class="top-actions">
+@@ -37,7 +37,7 @@
+         <details id="dashboardSection" class="section" open>
+           <summary>
+             <span>Dashboard</span>
+-            <small>pipeline · statistics · activity</small>
++            <small>workflow · recovery · materials</small>
+           </summary>
+ 
+           <div class="section-body">
+@@ -45,112 +45,108 @@
+               <article class="dashboard-card dashboard-card--pipeline">
+                 <div class="card-head">
+                   <div>
+-                    <p class="eyebrow">Pipeline Status</p>
+-                    <h2>Pipeline Status</h2>
++                    <p class="eyebrow">Start Pipeline</p>
++                    <h2>Start Pipeline</h2>
+                   </div>
+-                  <button id="pipelineStatusBadge" class="status" type="button" data-open-section="dashboardSection" data-focus-panel="liveFeed">Ready</button>
++                  <button id="pipelineStatusBadge" class="status" type="button" data-open-section="dashboardSection" data-focus-panel="status">Waiting</button>
+                 </div>
+-                <p id="pipelineStatusMessage" class="hint">Pipeline paused. Start it when sources are ready.</p>
++                <p id="pipelineStatusMessage" class="hint">Start the pipeline when sources are ready.</p>
+                 <div class="button-row">
+                   <button id="startPipelineBtn" class="workflow-primary" type="button">Start Pipeline</button>
+                 </div>
+-                <div id="pipelineInsight" class="pipeline-insight">Ready means sources and settings can be checked, but no collection is running yet.</div>
+-                <div id="pipelineStepper" class="stepper" aria-label="Pipeline stages"></div>
++                <div class="manual-ai-test">
++                  <div class="manual-ai-test__head">
++                    <div>
++                      <p class="eyebrow">Manual AI Test</p>
++                      <h3>Test /api/generate/ directly</h3>
++                    </div>
++                  </div>
++                  <div class="stack">
++                    <input id="manualAiTestTitle" type="text" placeholder="Test title" autocomplete="off" />
++                    <textarea id="manualAiTestText" placeholder="Paste text to test the AI generator"></textarea>
++                    <label class="field">
++                      <span>Mode</span>
++                      <select id="manualAiTestMode">
++                        <option value="openai">OpenAI</option>
++                        <option value="demo">Demo</option>
++                      </select>
++                    </label>
++                    <div class="button-row">
++                      <button id="manualAiTestBtn" class="secondary" type="button">Run Manual AI Test</button>
++                    </div>
++                    <pre id="manualAiTestResult" class="result-box">Manual AI test results will appear here.</pre>
++                  </div>
++                </div>
+               </article>
+ 
+-              <article class="dashboard-card dashboard-card--stats">
+-                <p class="eyebrow">Statistics</p>
+-                <h2>Statistics</h2>
+-                <div class="stats-grid">
+-                  <button class="stat-tile" type="button" data-open-section="dashboardSection" data-focus-panel="newsQueue">
+-                    <span>News Collected</span>
+-                    <strong id="statNewsCollected">0</strong>
+-                    <small>Open collected news</small>
+-                  </button>
+-                  <button class="stat-tile" type="button" data-open-section="filtersSection">
+-                    <span>Ready for Generate Post</span>
+-                    <strong id="statNewsFiltered">0</strong>
+-                    <small>Open filters</small>
+-                  </button>
+-                  <button class="stat-tile" type="button" data-open-section="postsSection" data-post-filter="generated">
+-                    <span>Posts Generated</span>
+-                    <strong id="statPostsGenerated">0</strong>
+-                    <small>Show generated posts</small>
+-                  </button>
+-                  <button class="stat-tile" type="button" data-open-section="postsSection" data-post-filter="published">
+-                    <span>Posts Published</span>
+-                    <strong id="statPostsPublished">0</strong>
+-                    <small>Show published posts</small>
+-                  </button>
+-                  <button class="stat-tile" type="button" data-open-section="postsSection" data-post-filter="failed">
+-                    <span>Failed Tasks</span>
+-                    <strong id="statFailedTasks">0</strong>
+-                    <small>Show failed items</small>
+-                  </button>
+-                </div>
++              <article class="dashboard-card dashboard-card--status">
++                <p class="eyebrow">Current Status</p>
++                <h2>Current Status</h2>
++                <div id="currentStatusList" class="status-trace"></div>
++                <div id="pipelineInsight" class="pipeline-insight">Parsing → Filtering → AI Generation → Telegram Publishing</div>
++                <div id="pipelineStepper" class="stepper" aria-label="Pipeline stages"></div>
+               </article>
+ 
+-              <details id="pipelineLiveFeedCard" class="dashboard-card dashboard-card--live live-accordion" open>
++              <details id="errorLogsCard" class="dashboard-card dashboard-card--logs live-accordion" open>
+                 <summary class="live-accordion-summary">
+                   <div>
+-                    <p class="eyebrow">Live Activity</p>
+-                    <h2>Current Pipeline Status</h2>
++                    <p class="eyebrow">Errors & Recovery</p>
++                    <h2>Errors & Recovery</h2>
+                   </div>
+-                  <button id="pipelineLiveBadge" class="status slim" type="button" data-open-section="dashboardSection" data-focus-panel="liveFeed">Idle</button>
++                  <button id="errorLogsBadge" class="status slim" type="button" data-open-section="settingsSection">No errors</button>
+                 </summary>
+                 <div class="live-accordion-body">
+-                  <div class="live-summary-grid">
+-                    <div class="live-summary-tile">
+-                      <span>Current action</span>
+-                      <strong id="pipelineLiveCurrentAction">Waiting for a manual start.</strong>
+-                    </div>
+-                    <div class="live-summary-tile">
+-                      <span>Active stage</span>
+-                      <strong id="pipelineLiveActiveStage">Idle</strong>
+-                    </div>
+-                    <div class="live-summary-tile">
+-                      <span>Last action</span>
+-                      <strong id="pipelineLiveLastAction">No actions yet.</strong>
+-                    </div>
+-                    <div class="live-summary-tile">
+-                      <span>Errors</span>
+-                      <strong id="pipelineLiveErrors">No errors.</strong>
+-                    </div>
++                  <div id="errorLogsSummary" class="live-summary">No errors recorded yet.</div>
++                  <div id="errorLogsList" class="live-feed"></div>
++                  <div class="action-guide">
++                    <div><strong>OpenAI issues</strong><span>Check the OpenAI key, model, and network connection in Settings.</span></div>
++                    <div><strong>Telegram issues</strong><span>Check Bot Token, API ID, API Hash, and channel settings before publishing again.</span></div>
++                    <div><strong>Source issues</strong><span>Open Sources, verify the feed or channel URL, then run Start Pipeline again.</span></div>
+                   </div>
+-                  <div id="pipelineLiveSummary" class="live-summary">Start Pipeline to see collection updates. AI generation stays manual through Generate Post.</div>
+-                  <div id="pipelineLiveFeed" class="live-feed"></div>
+                 </div>
+               </details>
+ 
+-              <article id="newsQueueCard" class="dashboard-card dashboard-card--news dashboard-card--wide">
++              <article id="readyMaterialsCard" class="dashboard-card dashboard-card--materials dashboard-card--wide">
++                <div class="card-head">
++                  <div>
++                    <p class="eyebrow">Ready Materials</p>
++                    <h2>Ready Materials</h2>
++                  </div>
++                  <button id="readyMaterialsBadge" class="status slim" type="button" data-open-section="postsSection">0 items</button>
++                </div>
++                <p class="hint">Edit a draft, publish again, or jump to logs. Each card keeps the generated text in one place.</p>
++                <div id="readyMaterialsList" class="material-list"></div>
++              </article>
++
++              <article id="telegramPublicationsCard" class="dashboard-card dashboard-card--publications dashboard-card--wide">
+                 <div class="card-head">
+                   <div>
+-                    <p class="eyebrow">Collected News</p>
+-                    <h2>Review and publish manually</h2>
++                    <p class="eyebrow">Telegram Publications</p>
++                    <h2>Telegram Publications</h2>
+                   </div>
+-                  <button id="newsQueueBadge" class="status slim" type="button" data-open-section="dashboardSection" data-focus-panel="newsQueue">0 items</button>
++                  <button id="telegramPublicationsBadge" class="status slim" type="button" data-open-section="postsSection">0 items</button>
+                 </div>
+-                <p class="hint">Choose a news item, edit the draft with AI, then send it to Telegram when you're ready.</p>
++                <p class="hint">Review publication time, channel, link, and result before publishing again.</p>
+                 <div class="table-wrap">
+                   <table class="data-table data-table--clickable">
+                     <thead>
+                       <tr>
+-                        <th>Title</th>
+-                        <th>Source</th>
+-                        <th>Status</th>
+-                        <th>Actions</th>
++                        <th>Publication Time</th>
++                        <th>Channel</th>
++                        <th>Telegram Link</th>
++                        <th>Result</th>
+                       </tr>
+                     </thead>
+-                    <tbody id="newsQueueTableBody"></tbody>
++                    <tbody id="telegramPublicationsTableBody"></tbody>
+                   </table>
+                 </div>
+               </article>
+ 
+-              <article class="dashboard-card dashboard-card--activity">
++              <article class="dashboard-card dashboard-card--activity dashboard-card--wide">
+                 <div class="card-head">
+                   <div>
+-                    <p class="eyebrow">Last Activity</p>
+-                    <h2>Last Activity</h2>
++                    <p class="eyebrow">Logs</p>
++                    <h2>Logs</h2>
+                   </div>
+                 </div>
+                 <div class="table-wrap">
+@@ -167,42 +163,35 @@
+                 </div>
+               </article>
+ 
+-              <details id="errorLogsCard" class="dashboard-card dashboard-card--logs live-accordion" open>
+-                <summary class="live-accordion-summary">
+-                  <div>
+-                    <p class="eyebrow">Logs & Fixes</p>
+-                    <h2>Failed Tasks and Recovery Hints</h2>
+-                  </div>
+-                  <button id="errorLogsBadge" class="status slim" type="button" data-open-section="settingsSection">No errors</button>
+-                </summary>
+-                <div class="live-accordion-body">
+-                  <div id="errorLogsSummary" class="live-summary">No errors recorded yet.</div>
+-                  <div id="errorLogsList" class="live-feed"></div>
+-                  <div class="action-guide">
+-                    <div><strong>OpenAI issues</strong><span>Check the OpenAI key, model, and network connection in Settings.</span></div>
+-                    <div><strong>Telegram issues</strong><span>Check Bot Token, API ID, API Hash, and channel settings before publishing again.</span></div>
+-                    <div><strong>Source issues</strong><span>Open Sources, verify the feed or channel URL, then run Start Pipeline again.</span></div>
+-                  </div>
+-                </div>
+-              </details>
+-
+-              <article class="dashboard-card dashboard-card--actions">
+-                <p class="eyebrow">Quick Actions</p>
+-                <h2>Quick Actions</h2>
+-                <div class="button-grid">
+-                  <button id="parseNewsBtn" class="workflow-primary" type="button">Fetch News</button>
+-                  <button id="generatePostsBtn" class="secondary" type="button">Generate Post (AI)</button>
+-                  <button id="publishPendingBtn" class="secondary" type="button">Send to Telegram</button>
+-                  <button id="undoDashboardBtn" class="secondary" type="button">Undo Dashboard</button>
+-                  <button id="refreshBtn" class="secondary" type="button">Refresh</button>
+-                </div>
+-                <div id="quickActionNote" class="hint">Guided workflow: Fetch News → Generate Post → Review → Send to Telegram.</div>
+-                <div class="action-guide">
+-                  <div><strong>Fetch News</strong><span>collects fresh items from enabled RSS and Telegram sources.</span></div>
+-                  <div><strong>Generate Post (AI)</strong><span>creates one AI draft only after the user clicks it.</span></div>
+-                  <div><strong>Send to Telegram</strong><span>sends the first generated or pending post to Telegram.</span></div>
+-                  <div><strong>Undo Dashboard</strong><span>resets the open panels and returns the dashboard to its default view.</span></div>
+-                  <div><strong>Refresh</strong><span>reloads dashboard data, task status, posts, sources, and errors.</span></div>
++              <article class="dashboard-card dashboard-card--stats dashboard-card--wide">
++                <p class="eyebrow">Statistics</p>
++                <h2>Statistics</h2>
++                <div class="stats-grid">
++                  <button class="stat-tile" type="button" data-open-section="sourcesSection">
++                    <span>Sources</span>
++                    <strong id="statSources">0</strong>
++                    <small>Open source management</small>
++                  </button>
++                  <button class="stat-tile" type="button" data-open-section="dashboardSection" data-focus-panel="readyMaterials">
++                    <span>Articles Found</span>
++                    <strong id="statArticlesFound">0</strong>
++                    <small>Open ready materials</small>
++                  </button>
++                  <button class="stat-tile" type="button" data-open-section="postsSection" data-post-filter="generated">
++                    <span>Posts Generated</span>
++                    <strong id="statPostsGenerated">0</strong>
++                    <small>Show generated posts</small>
++                  </button>
++                  <button class="stat-tile" type="button" data-open-section="postsSection" data-post-filter="published">
++                    <span>Posts Published</span>
++                    <strong id="statPostsPublished">0</strong>
++                    <small>Show published posts</small>
++                  </button>
++                  <button class="stat-tile" type="button" data-open-section="dashboardSection" data-focus-panel="errors">
++                    <span>Failed Tasks</span>
++                    <strong id="statFailedTasks">0</strong>
++                    <small>Open recovery hints</small>
++                  </button>
+                 </div>
+               </article>
+             </div>
+@@ -398,15 +387,15 @@
+ 
+         <details id="postsSection" class="section">
+           <summary>
+-            <span>Generated Posts</span>
+-            <small>drafts · review · publish</small>
++            <span>Telegram Publications</span>
++            <small>history · review · publish again</small>
+           </summary>
+ 
+           <div class="section-body">
+             <div class="section-toolbar">
+               <div class="section-copy">
+-                <p class="lead">Click a row to open the original news and the generated text. Regenerate, publish, or delete from one modal.</p>
+-                <p class="hint">Generate creates the first AI draft. Regenerate replaces the draft with a fresh AI version after you review it.</p>
++                <p class="lead">Open any row to review the generated material, check the publication result, and publish again if needed.</p>
++                <p class="hint">This is the publication history view. Editing and manual publishing stay available from Ready Materials.</p>
+               </div>
+               <div id="postsSummary" class="status-grid"></div>
+             </div>
+@@ -416,10 +405,10 @@
+                 <table class="data-table data-table--clickable">
+                   <thead>
+                     <tr>
+-                      <th>Title</th>
+-                      <th>Source</th>
+-                      <th>Status</th>
+-                      <th>Created At</th>
++                      <th>Publication Time</th>
++                      <th>Channel</th>
++                      <th>Telegram Link</th>
++                      <th>Result</th>
+                     </tr>
+                   </thead>
+                   <tbody id="postsTableBody"></tbody>
+@@ -500,8 +489,26 @@
+             </div>
+ 
+             <details class="subdetails developer-tools">
+-              <summary>Developer Tools</summary>
++              <summary>Task Monitoring</summary>
+               <div class="subbody">
++                <div class="task-monitoring-grid">
++                  <div class="task-monitoring-card">
++                    <span>Celery status</span>
++                    <strong id="taskMonitoringCelery">Unknown</strong>
++                  </div>
++                  <div class="task-monitoring-card">
++                    <span>Celery Beat status</span>
++                    <strong id="taskMonitoringBeat">Unknown</strong>
++                  </div>
++                  <div class="task-monitoring-card">
++                    <span>Flower status</span>
++                    <strong id="taskMonitoringFlower">Unknown</strong>
++                  </div>
++                  <div class="task-monitoring-card">
++                    <span>Queue information</span>
++                    <strong id="taskMonitoringQueue">Unknown</strong>
++                  </div>
++                </div>
+                 <div class="dev-tools">
+                   <a class="link-button secondary" href="/docs" target="_blank" rel="noreferrer">Swagger</a>
+                   <a class="link-button secondary" href="/api/public-status" target="_blank" rel="noreferrer">Public status</a>
+@@ -572,7 +579,7 @@
+           <div class="modal-shell modal-shell--wide">
+         <div class="modal-head">
+           <div>
+-            <p class="eyebrow">Generated Posts</p>
++            <p class="eyebrow">Ready Materials</p>
+             <h2 id="postModalTitle">Post details</h2>
+           </div>
+           <div class="button-row">
+@@ -601,9 +608,9 @@
+         </div>
+ 
+         <div class="button-row post-modal-actions">
+-          <button id="regeneratePostBtn" class="secondary" type="button">Regenerate Post</button>
+-          <button id="publishPostBtn" class="workflow-primary" type="button">Send to Telegram</button>
+-          <button id="deletePostBtn" class="danger" type="button">Delete</button>
++          <button id="editPostBtn" class="secondary" type="button">Edit</button>
++          <button id="publishPostBtn" class="workflow-primary" type="button">Publish Again</button>
++          <button id="viewLogsBtn" class="secondary" type="button">View Logs</button>
+         </div>
+       </div>
+     </dialog>
+diff --git a/app/frontend/static/dashboard.css b/app/frontend/static/dashboard.css
+index ea06146..7f69318 100644
+--- a/app/frontend/static/dashboard.css
++++ b/app/frontend/static/dashboard.css
+@@ -611,6 +611,17 @@ details[open] > summary::after {
+   grid-column: 1 / -1;
+ }
+ 
++.dashboard-card--materials,
++.dashboard-card--publications,
++.dashboard-card--activity,
++.dashboard-card--stats {
++  grid-column: 1 / -1;
++}
++
++.dashboard-card--wide {
++  grid-column: 1 / -1;
++}
++
+ .dashboard-card--logs {
+   grid-column: 1 / -1;
+ }
+@@ -649,6 +660,169 @@ details[open] > summary::after {
+   grid-template-columns: repeat(5, minmax(0, 1fr));
+ }
+ 
++.manual-ai-test {
++  margin-top: 1rem;
++  padding: 1rem;
++  border: 1px solid var(--line);
++  border-radius: 18px;
++  background: rgba(2, 6, 23, 0.26);
++  display: grid;
++  gap: 0.85rem;
++}
++
++.manual-ai-test__head {
++  display: flex;
++  justify-content: space-between;
++  gap: 0.75rem;
++  align-items: flex-start;
++}
++
++.manual-ai-test textarea {
++  min-height: 150px;
++}
++
++.status-trace {
++  display: grid;
++  gap: 0.65rem;
++  margin-bottom: 0.8rem;
++}
++
++.status-trace__item {
++  display: grid;
++  gap: 0.2rem;
++  padding: 0.8rem 0.85rem;
++  border: 1px solid var(--line);
++  border-radius: 16px;
++  background: rgba(15, 23, 42, 0.72);
++}
++
++.status-trace__item span {
++  color: var(--muted);
++  font-size: 0.76rem;
++  text-transform: uppercase;
++  letter-spacing: 0.12em;
++  font-weight: 800;
++}
++
++.status-trace__item strong {
++  font-size: 0.98rem;
++  line-height: 1.35;
++}
++
++.status-trace__item small {
++  color: var(--muted);
++  font-size: 0.86rem;
++}
++
++.status-trace__item--ok {
++  border-color: rgba(16, 185, 129, 0.24);
++  background: rgba(16, 185, 129, 0.09);
++}
++
++.status-trace__item--wait {
++  border-color: rgba(245, 158, 11, 0.24);
++  background: rgba(245, 158, 11, 0.09);
++}
++
++.status-trace__item--run {
++  border-color: rgba(59, 130, 246, 0.28);
++  background: rgba(59, 130, 246, 0.1);
++}
++
++.status-trace__item--error {
++  border-color: rgba(239, 68, 68, 0.26);
++  background: rgba(239, 68, 68, 0.09);
++}
++
++.material-list {
++  display: grid;
++  gap: 0.85rem;
++}
++
++.material-card {
++  padding: 1rem;
++  border: 1px solid var(--line);
++  border-radius: 18px;
++  background: linear-gradient(180deg, rgba(30, 41, 59, 0.98), rgba(17, 24, 39, 0.98));
++  box-shadow: var(--shadow-soft);
++  display: grid;
++  gap: 0.8rem;
++}
++
++.material-card__head {
++  display: flex;
++  justify-content: space-between;
++  gap: 0.75rem;
++  align-items: flex-start;
++}
++
++.material-preview {
++  display: grid;
++  gap: 0.45rem;
++}
++
++.material-preview__box {
++  padding: 0.85rem 0.95rem;
++  border: 1px dashed rgba(148, 163, 184, 0.32);
++  border-radius: 16px;
++  background: rgba(15, 23, 42, 0.68);
++  color: var(--muted);
++}
++
++.material-preview__box span {
++  display: block;
++  text-transform: uppercase;
++  letter-spacing: 0.12em;
++  font-size: 0.72rem;
++  font-weight: 800;
++  margin-bottom: 0.2rem;
++}
++
++.material-preview__box strong {
++  display: block;
++  color: var(--text);
++  margin-bottom: 0.2rem;
++}
++
++.material-text {
++  color: var(--text);
++  line-height: 1.55;
++  white-space: pre-wrap;
++}
++
++.material-actions {
++  justify-content: flex-start;
++}
++
++.task-monitoring-grid {
++  display: grid;
++  grid-template-columns: repeat(2, minmax(0, 1fr));
++  gap: 0.75rem;
++  margin-bottom: 1rem;
++}
++
++.task-monitoring-card {
++  display: grid;
++  gap: 0.25rem;
++  padding: 0.85rem 0.9rem;
++  border: 1px solid var(--line);
++  border-radius: 16px;
++  background: rgba(15, 23, 42, 0.72);
++}
++
++.task-monitoring-card span {
++  color: var(--muted);
++  font-size: 0.76rem;
++  text-transform: uppercase;
++  letter-spacing: 0.12em;
++  font-weight: 800;
++}
++
++.task-monitoring-card strong {
++  font-size: 0.98rem;
++  line-height: 1.35;
++}
++
+ .stat-tile {
+   padding: 0.72rem;
+   display: flex;
+@@ -1579,6 +1753,10 @@ small {
+     grid-template-columns: repeat(2, minmax(0, 1fr));
+   }
+ 
++  .task-monitoring-grid {
++    grid-template-columns: 1fr;
++  }
++
+   .source-footer {
+     grid-template-columns: 1fr;
+   }
+@@ -1629,6 +1807,10 @@ small {
+     grid-template-columns: 1fr;
+   }
+ 
++  .task-monitoring-grid {
++    grid-template-columns: 1fr;
++  }
++
+   .data-table thead {
+     display: none;
+   }
+diff --git a/app/frontend/static/dashboard.js b/app/frontend/static/dashboard.js
+index 323a66b..14220d3 100644
+--- a/app/frontend/static/dashboard.js
++++ b/app/frontend/static/dashboard.js
+@@ -65,10 +65,10 @@ const SOURCE_EXAMPLE_FALLBACKS = {
+ };
+ 
+ const PIPELINE_STEPS = [
+-  { key: "Pipeline Started", label: "Start" },
+-  { key: "RSS Processing", label: "RSS" },
+-  { key: "Telegram Processing", label: "Telegram" },
+-  { key: "Completed", label: "Done" },
++  { key: "Pipeline Started", label: "Parsing" },
++  { key: "RSS Processing", label: "Filtering" },
++  { key: "Telegram Processing", label: "AI Generation" },
++  { key: "Completed", label: "Telegram Publishing" },
+ ];
+ 
+ const DEFAULT_SETTINGS_DRAFT = {
+@@ -525,10 +525,10 @@ function pipelineTone(stageState) {
+ 
+ function translateStageLabel(value) {
+   const map = {
+-    "Pipeline Started": "Start",
+-    "RSS Processing": "Fetch News",
+-    "Telegram Processing": "Fetch Telegram",
+-    "Completed": "Done",
++    "Pipeline Started": "Parsing",
++    "RSS Processing": "Filtering",
++    "Telegram Processing": "AI Generation",
++    "Completed": "Telegram Publishing",
+   };
+   return map[value] || value || "";
+ }
+@@ -545,20 +545,20 @@ function translateStageState(value) {
+ 
+ function statusExplanation(value) {
+   const map = {
+-    Ready: "Ready means the dashboard can start a new run, but no collection is active right now.",
+-    Running: "Running means Celery is fetching sources and checking which items are ready for manual AI generation.",
+-    Done: "Done means the collection task finished. Generate Post stays manual so you can review the draft first.",
+-    Error: "Error means the task failed. Check Failed Tasks, source errors, and logs.",
++    Ready: "The pipeline is idle and ready to start.",
++    Running: "The pipeline is parsing sources and preparing materials.",
++    Done: "The latest run finished. Ready Materials and Telegram Publications show what happened next.",
++    Error: "A task failed. Check Errors & Recovery and logs for the next step.",
+   };
+   return map[value] || map.Ready;
+ }
+ 
+ function stageExplanation(stageKey, stageState) {
+   const descriptions = {
+-    "Pipeline Started": "prepares the run",
+-    "RSS Processing": "fetches website feeds",
+-    "Telegram Processing": "fetches Telegram channels",
+-    Completed: "main run finished",
++    "Pipeline Started": "parsing sources",
++    "RSS Processing": "filtering items",
++    "Telegram Processing": "preparing AI generation",
++    Completed: "publishing to Telegram",
+   };
+   if (stageState === "pending") return descriptions[stageKey] || "waiting for its turn";
+   if (stageState === "running") return descriptions[stageKey] || "running now";
+@@ -569,7 +569,7 @@ function stageExplanation(stageKey, stageState) {
+ 
+ function pipelineOutcomeMessage(meta, context) {
+   if (context.running) {
+-    return `Running: ${translateStageLabel(meta.stage_label || meta.stage_key || "Pipeline Started")}. Watch the live feed below for active changes.`;
++    return `Running: ${translateStageLabel(meta.stage_label || meta.stage_key || "Pipeline Started")}. Watch the current status block below for live progress.`;
+   }
+   if (context.failed) {
+     return explainErrorBody(context.status.task_result || context.status.task_meta, "Pipeline finished with an error");
+@@ -579,21 +579,21 @@ function pipelineOutcomeMessage(meta, context) {
+     const ready = Number(meta.ready_for_generation ?? meta.queued_for_ai ?? 0);
+     const errors = Number(meta.errors || 0);
+     if (!newItems && !ready && !errors) {
+-      return "Pipeline finished quickly: no new news was found, so there was nothing to generate manually.";
++      return "Pipeline finished quickly: no new news was found.";
+     }
+-    return `Pipeline finished: ${newItems} new, ${ready} ready for Generate Post, ${errors} failed source checks.`;
++    return `Pipeline finished: ${newItems} new, ${ready} ready for AI generation, ${errors} failed source checks.`;
+   }
+   return "Ready means sources and settings can be checked, but no collection is running yet.";
+ }
+ 
+ function pipelineToastMessage(status) {
+   const meta = status.task_result && Object.keys(status.task_result).length ? status.task_result : status.task_meta || {};
+-  if (status.task_state === "FAILURE") return "Pipeline finished with an error. Check Failed Tasks and source errors.";
++  if (status.task_state === "FAILURE") return "Pipeline finished with an error. Check Errors & Recovery and logs.";
+   const newItems = Number(meta.new_items || 0);
+   const ready = Number(meta.ready_for_generation ?? meta.queued_for_ai ?? 0);
+   const errors = Number(meta.errors || 0);
+-  if (!newItems && !ready && !errors) return "Pipeline completed quickly: no new news was found, so nothing was generated.";
+-  return `Pipeline completed: ${newItems} new, ${ready} ready for Generate Post, ${errors} failed.`;
++  if (!newItems && !ready && !errors) return "Pipeline completed quickly: no new news was found.";
++  return `Pipeline completed: ${newItems} new, ${ready} ready for AI generation, ${errors} failed.`;
+ }
+ 
+ function pipelineContext() {
+@@ -1125,23 +1125,24 @@ function postSummaryCounts(items) {
+ function renderPostRow(post) {
+   const info = postStatusInfo(post.status);
+   const headline = post.news?.title || `Post ${post.id.slice(0, 8)}`;
+-  const source = post.news?.source || "—";
+-  const createdAt = post.created_at || post.updated_at;
++  const channel = publicationChannelName(post);
++  const link = publicationLink(post);
++  const createdAt = post.published_at || post.updated_at || post.created_at;
+   return `
+     <tr data-open-post-id="${escapeHtml(post.id)}">
+-      <td data-label="Title">
+-        <div class="post-row-title">
+-          <div class="row-title">${escapeHtml(headline)}</div>
+-          <div class="row-subtle">${escapeHtml(post.news?.summary || post.generated_text || "No preview available.")}</div>
+-        </div>
++      <td data-label="Publication Time">
++        <div class="row-title">${escapeHtml(formatDate(createdAt))}</div>
++        <div class="row-subtle">${escapeHtml(headline)}</div>
+       </td>
+-      <td data-label="Source">
+-        <div class="row-title">${escapeHtml(source)}</div>
++      <td data-label="Channel">
++        <div class="row-title">${escapeHtml(channel)}</div>
+       </td>
+-      <td data-label="Status">
+-        <span class="badge post-status post-status--${escapeHtml(info.tone)}">${escapeHtml(info.label)}</span>
++      <td data-label="Telegram Link">
++        ${link ? `<a class="row-subtle" href="${escapeHtml(link)}" target="_blank" rel="noreferrer">${escapeHtml(link)}</a>` : `<div class="row-subtle">Not available</div>`}
++      </td>
++      <td data-label="Result">
++        <span class="badge post-status post-status--${escapeHtml(info.tone)}">${escapeHtml(post.error || info.label)}</span>
+       </td>
+-      <td data-label="Created At">${escapeHtml(formatDate(createdAt))}</td>
+     </tr>`;
+ }
+ 
+@@ -1151,7 +1152,7 @@ function renderPosts() {
+   if (!body || !summary) return;
+ 
+   if (!hasAdminKey()) {
+-    renderPlaceholder("#postsTableBody", "Enter the admin access code to view generated posts.", 4);
++    renderPlaceholder("#postsTableBody", "Enter the admin access code to view publication history.", 4);
+     setHtml("#postsSummary", "");
+     return;
+   }
+@@ -1165,9 +1166,9 @@ function renderPosts() {
+     : state.posts;
+ 
+   if (!filteredPosts.length) {
+-    renderPlaceholder("#postsTableBody", state.postStatusFilter ? "No posts match this status filter." : "No posts yet. Fetch news and then generate the first draft.", 4);
++    renderPlaceholder("#postsTableBody", state.postStatusFilter ? "No publications match this status filter." : "No Telegram publications yet.", 4);
+   } else {
+-    const sorted = [...filteredPosts].sort((left, right) => new Date(right.created_at) - new Date(left.created_at));
++    const sorted = [...filteredPosts].sort((left, right) => new Date(right.published_at || right.updated_at || right.created_at || 0) - new Date(left.published_at || left.updated_at || left.created_at || 0));
+     body.innerHTML = sorted.map(renderPostRow).join("");
+   }
+ 
+@@ -1221,18 +1222,217 @@ function renderPipelineStepper() {
+   setText("#pipelineStatusMessage", message);
+   setText("#pipelineInsight", statusExplanation(badgeText));
+ 
+-  const note = [];
+-  if (!state.sources.length) note.push("Add at least one source to unlock the workflow.");
+-  if (state.sources.some((source) => source.type === "tg")) note.push("Telegram sources are included in the scenario.");
+-  if (state.settingsDraft.language) note.push(`Language: ${state.settingsDraft.language}.`);
+-  if (state.settingsDraft.duplicateDetection) note.push("Duplicate detection is enabled.");
+-  if (state.settingsDraft.sourceFiltering) note.push("Source filtering is enabled.");
+-  note.unshift("Guided workflow: Fetch News → Generate Post → Review → Send to Telegram.");
+-  setText("#quickActionNote", note.join(" "));
+-
+   return statusState;
+ }
+ 
++function currentStatusItems() {
++  const context = pipelineContext();
++  const meta = context.meta || {};
++  const readyCount = Number(meta.ready_for_generation ?? meta.queued_for_ai ?? 0);
++  const generatedCount = state.posts.filter((post) => post.status === "generated" || post.status === "pending_approval").length;
++  const publishedCount = state.posts.filter((post) => post.status === "published").length;
++  const failedCount =
++    state.sources.filter((item) => item.last_error).length +
++    state.posts.filter((post) => post.status === "failed" || post.status === "rejected" || post.error).length;
++
++  return [
++    {
++      label: "Waiting",
++      tone: context.running ? "wait" : "ok",
++      value: context.running ? "Pipeline already started" : "Idle and ready",
++      note: context.running ? "A pipeline run is already in progress." : "Start Pipeline when sources are ready.",
++    },
++    {
++      label: "Parsing News",
++      tone: context.running ? "run" : state.news.length ? "ok" : "wait",
++      value: context.running ? "Parsing active" : `${state.news.length} articles found`,
++      note: context.running ? "RSS and Telegram sources are being checked." : "This is the collection step.",
++    },
++    {
++      label: "Filtering News",
++      tone: readyCount || state.news.length ? "ok" : "wait",
++      value: readyCount ? `${readyCount} ready for AI` : "No filtered items yet",
++      note: `${Number(meta.duplicates || 0)} duplicates were skipped in the last run.`,
++    },
++    {
++      label: "Generating Posts",
++      tone: generatedCount ? "ok" : "wait",
++      value: generatedCount ? `${generatedCount} generated` : "Waiting for AI draft",
++      note: "Use Ready Materials to edit the draft before publishing.",
++    },
++    {
++      label: "Publishing to Telegram",
++      tone: publishedCount ? "ok" : "wait",
++      value: publishedCount ? `${publishedCount} published` : "Not published yet",
++      note: "Publication history appears below in Telegram Publications.",
++    },
++    {
++      label: "Completed",
++      tone: context.status.task_state === "SUCCESS" ? "ok" : context.running ? "wait" : "ok",
++      value: context.status.task_state === "SUCCESS" ? "Latest run finished" : "Awaiting run completion",
++      note: context.status.task_state === "SUCCESS" ? "The last pipeline run completed successfully." : "Visible after the run ends.",
++    },
++    {
++      label: "Failed",
++      tone: context.failed || failedCount ? "error" : "ok",
++      value: context.failed || failedCount ? `${failedCount || 1} issue${(failedCount || 1) === 1 ? "" : "s"}` : "No failures",
++      note: "See Errors & Recovery and logs for fixes.",
++    },
++  ];
++}
++
++function renderCurrentStatusPanel() {
++  const context = pipelineContext();
++  const items = currentStatusItems();
++  setHtml(
++    "#currentStatusList",
++    items
++      .map(
++        (item) => `
++          <div class="status-trace__item status-trace__item--${escapeHtml(item.tone)}">
++            <span>${escapeHtml(item.label)}</span>
++            <strong>${escapeHtml(item.value)}</strong>
++            <small>${escapeHtml(item.note)}</small>
++          </div>`
++      )
++      .join("")
++  );
++  setText("#pipelineStatusMessage", pipelineOutcomeMessage(context.meta || {}, context));
++}
++
++function readyMaterialItems() {
++  return state.posts
++    .filter((post) => post.status === "generated" || post.status === "pending_approval")
++    .sort((left, right) => new Date(right.updated_at || right.created_at || 0) - new Date(left.updated_at || left.created_at || 0));
++}
++
++function renderReadyMaterialCard(post) {
++  const info = postStatusInfo(post.status);
++  const news = post.news || state.news.find((item) => item.id === post.news_id) || null;
++  const title = news?.title || `Post ${post.id.slice(0, 8)}`;
++  const source = news?.source || "—";
++  const date = news?.published_at || post.created_at || post.updated_at;
++  const generatedText = post.generated_text || news?.summary || news?.raw_text || "No generated text available.";
++  return `
++    <article class="material-card" data-post-id="${escapeHtml(post.id)}">
++      <div class="material-card__head">
++        <div>
++          <div class="row-title">${escapeHtml(title)}</div>
++          <div class="row-subtle">${escapeHtml(source)} · ${escapeHtml(formatDate(date))}</div>
++        </div>
++        <span class="badge post-status post-status--${escapeHtml(info.tone)}">${escapeHtml(info.label)}</span>
++      </div>
++      <div class="material-preview">
++        <div class="material-preview__box">
++          <span>Image preview</span>
++          <strong>No image preview available</strong>
++          <small>If a post image exists later, it will appear here.</small>
++        </div>
++      </div>
++      <div class="material-text">${escapeHtml(generatedText)}</div>
++      <div class="row-actions material-actions">
++        <button class="secondary" type="button" data-open-post-id="${escapeHtml(post.id)}">Edit</button>
++        <button class="workflow-primary" type="button" data-publish-ready-post="${escapeHtml(post.id)}">Publish Again</button>
++        <button class="secondary" type="button" data-view-logs="true">View Logs</button>
++      </div>
++    </article>`;
++}
++
++function renderReadyMaterials() {
++  const body = $("#readyMaterialsList");
++  const badge = $("#readyMaterialsBadge");
++  if (!body || !badge) return;
++
++  const items = readyMaterialItems();
++  setStatus("#readyMaterialsBadge", items.length ? "OK" : "WAIT", items.length ? `${items.length} item${items.length === 1 ? "" : "s"}` : "0 items");
++
++  if (!hasAdminKey()) {
++    body.innerHTML = `<div class="empty-state">Enter the admin access code to view ready materials.</div>`;
++    return;
++  }
++
++  if (!items.length) {
++    body.innerHTML = `<div class="empty-state">No ready materials yet. Run the pipeline and generate a post first.</div>`;
++    return;
++  }
++
++  body.innerHTML = items.map(renderReadyMaterialCard).join("");
++}
++
++function publicationChannelName(post) {
++  return state.publicStatus?.telegram_target_channel || state.settings?.telegram_target_channel || post.news?.source || "Telegram";
++}
++
++function publicationLink(post) {
++  const channel = normalize(state.publicStatus?.telegram_target_channel || state.settings?.telegram_target_channel || "");
++  if (channel) {
++    return sourceHref(channel);
++  }
++  const newsUrl = normalize(post.news?.url || "");
++  return newsUrl ? sourceHref(newsUrl) : "";
++}
++
++function renderTelegramPublicationRow(post) {
++  const info = postStatusInfo(post.status);
++  const channel = publicationChannelName(post);
++  const link = publicationLink(post);
++  const publishedAt = post.published_at || post.updated_at || post.created_at;
++  const title = post.news?.title || `Post ${post.id.slice(0, 8)}`;
++  const resultText = post.status === "published" ? "Published successfully" : post.error ? post.error : info.label;
++  return `
++    <tr data-open-post-id="${escapeHtml(post.id)}">
++      <td data-label="Publication Time">
++        <div class="row-title">${escapeHtml(formatDate(publishedAt))}</div>
++        <div class="row-subtle">${escapeHtml(title)}</div>
++      </td>
++      <td data-label="Channel">
++        <div class="row-title">${escapeHtml(channel)}</div>
++      </td>
++      <td data-label="Telegram Link">
++        ${link ? `<a class="row-subtle" href="${escapeHtml(link)}" target="_blank" rel="noreferrer">${escapeHtml(link)}</a>` : `<div class="row-subtle">Not available</div>`}
++      </td>
++      <td data-label="Result">
++        <span class="badge post-status post-status--${escapeHtml(info.tone)}">${escapeHtml(resultText)}</span>
++      </td>
++    </tr>`;
++}
++
++function renderTelegramPublications() {
++  const body = $("#telegramPublicationsTableBody");
++  const badge = $("#telegramPublicationsBadge");
++  if (!body || !badge) return;
++
++  const items = [...state.posts]
++    .filter((post) => post.status === "published" || post.status === "failed" || post.status === "rejected" || post.published_at)
++    .sort((left, right) => new Date(right.published_at || right.updated_at || right.created_at || 0) - new Date(left.published_at || left.updated_at || left.created_at || 0));
++
++  setStatus("#telegramPublicationsBadge", items.length ? "OK" : "WAIT", items.length ? `${items.length} item${items.length === 1 ? "" : "s"}` : "0 items");
++
++  if (!hasAdminKey()) {
++    renderPlaceholder("#telegramPublicationsTableBody", "Enter the admin access code to view publication history.", 4);
++    return;
++  }
++
++  if (!items.length) {
++    renderPlaceholder("#telegramPublicationsTableBody", "No Telegram publications yet.", 4);
++    return;
++  }
++
++  body.innerHTML = items.map(renderTelegramPublicationRow).join("");
++}
++
++function renderTaskMonitoring() {
++  const monitoring = state.pipelineStatus?.monitoring || {};
++  const queueReady = Number(monitoring.queue?.ready_for_ai ?? monitoring.queue?.ready ?? 0);
++  const queuePublished = Number(monitoring.queue?.published ?? state.posts.filter((post) => post.status === "published").length);
++  const queueFailed = Number(monitoring.queue?.failed ?? state.posts.filter((post) => post.status === "failed" || post.status === "rejected" || post.error).length);
++
++  setText("#taskMonitoringCelery", monitoring.celery?.label || (state.pipelineStatus?.current_task_id ? "Celery worker running" : "Celery worker ready"));
++  setText("#taskMonitoringBeat", monitoring.beat?.label || "Celery Beat scheduled");
++  setText("#taskMonitoringFlower", monitoring.flower?.label || "Flower available at http://localhost:5555/");
++  setText("#taskMonitoringQueue", monitoring.queue?.label || `Ready ${queueReady} · Published ${queuePublished} · Failed ${queueFailed}`);
++}
++
+ function buildActivityRows() {
+   const rows = [];
+   const now = Date.now();
+@@ -1322,7 +1522,7 @@ function buildLiveFeedRows() {
+   if (meta.sources || meta.new_items || meta.duplicates || readyCount || meta.errors) {
+     rows.push({
+       ts: now - 1,
+-      title: `Run counters: ${Number(meta.new_items || 0)} new, ${Number(meta.duplicates || 0)} duplicates, ${readyCount} ready for Generate Post`,
++      title: `Run counters: ${Number(meta.new_items || 0)} new, ${Number(meta.duplicates || 0)} duplicates, ${readyCount} ready for AI generation`,
+       meta: `${Number(meta.sources || 0)} enabled sources checked, ${Number(meta.errors || 0)} source errors.`,
+       tone: Number(meta.errors || 0) ? "error" : "ok",
+     });
+@@ -1368,7 +1568,7 @@ function buildLiveFeedRows() {
+     rows.push({
+       ts: new Date(post.created_at || post.updated_at || Date.now()).getTime() || now - (index + 8) * 60000,
+       title: post.news?.title || `Post ${post.id.slice(0, 8)}`,
+-      meta: `Post status: ${info.label}. Click Posts to review generated text.`,
++      meta: `Post status: ${info.label}. Open Telegram Publications to review the history.`,
+       tone: info.tone,
+     });
+   });
+@@ -1564,9 +1764,9 @@ async function sendNewsToTelegram(newsId) {
+ function renderDashboard() {
+   const context = pipelineContext();
+   const meta = context.meta || {};
++  const sources = state.sources.length;
+   const collected = meta.new_items ?? state.news.length;
+-  const filtered = meta.ready_for_generation ?? meta.queued_for_ai ?? state.posts.filter((post) => ["generated", "pending_approval", "published"].includes(post.status)).length;
+-  const generated = state.posts.filter((post) => ["generated", "pending_approval", "published"].includes(post.status)).length;
++  const generated = state.posts.filter((post) => post.status === "generated" || post.status === "pending_approval").length;
+   const published = state.posts.filter((post) => post.status === "published").length;
+   const failed =
+     state.sources.filter((item) => item.last_error).length +
+@@ -1574,14 +1774,14 @@ function renderDashboard() {
+     (state.errorLogs?.length || 0) +
+     (context.failed ? 1 : 0);
+ 
+-  setText("#statNewsCollected", String(collected));
+-  setText("#statNewsFiltered", String(filtered));
++  setText("#statSources", String(sources));
++  setText("#statArticlesFound", String(collected));
+   setText("#statPostsGenerated", String(generated));
+   setText("#statPostsPublished", String(published));
+   setText("#statFailedTasks", String(failed));
+ 
+   if (!hasAdminKey()) {
+-    renderPlaceholder("#activityTableBody", "Enter the admin access code to unlock live activity.", 3);
++    renderPlaceholder("#activityTableBody", "Enter the admin access code to unlock logs.", 3);
+   } else {
+     setHtml(
+       "#activityTableBody",
+@@ -1599,20 +1799,17 @@ function renderDashboard() {
+   }
+ 
+   const startBtn = $("#startPipelineBtn");
+-  const parseBtn = $("#parseNewsBtn");
+-  const generateBtn = $("#generatePostsBtn");
+-  const publishBtn = $("#publishPendingBtn");
+-  const undoBtn = $("#undoDashboardBtn");
++  const manualAiTestBtn = $("#manualAiTestBtn");
+   if (startBtn) startBtn.disabled = !hasAdminKey() || context.running;
+-  if (parseBtn) parseBtn.disabled = !hasAdminKey() || context.running;
+-  if (generateBtn) generateBtn.disabled = !hasAdminKey() || context.running || !state.news.length;
+-  if (publishBtn) publishBtn.disabled = !hasAdminKey() || context.running || !state.posts.some((post) => post.status === "generated" || post.status === "pending_approval");
+-  if (undoBtn) undoBtn.disabled = false;
++  if (manualAiTestBtn) manualAiTestBtn.disabled = !hasAdminKey();
+ 
+   renderPipelineStepper();
+-  renderLiveFeed();
++  renderCurrentStatusPanel();
+   renderErrorLogsPanel();
+-  renderNewsQueue();
++  renderReadyMaterials();
++  renderTelegramPublications();
++  renderTaskMonitoring();
++  renderPosts();
+ }
+ 
+ function renderOpenAIStatus() {
+@@ -1707,19 +1904,27 @@ function renderSettings() {
+   if (verifyOpenaiBtn) verifyOpenaiBtn.disabled = !hasAdminKey();
+   if (checkTelegramBtn) checkTelegramBtn.disabled = !hasAdminKey();
+   if ($("#sourceSubmitBtn")) $("#sourceSubmitBtn").disabled = !hasAdminKey();
++  renderTaskMonitoring();
+ }
+ 
+ function renderLockedPrivateBlocks() {
+   renderPlaceholder("#themesTableBody", "Enter the admin access code to manage themes.", 3);
+   renderPlaceholder("#keywordsTableBody", "Enter the admin access code to manage keywords.", 3);
+-  renderPlaceholder("#postsTableBody", "Enter the admin access code to view generated posts.", 4);
++  renderPlaceholder("#postsTableBody", "Enter the admin access code to view publication history.", 4);
+   renderPlaceholder("#sourcesTableBody", "Enter the admin access code to manage sources.", 5);
++  const readyMaterials = $("#readyMaterialsList");
++  if (readyMaterials) {
++    readyMaterials.innerHTML = `<div class="empty-state">Enter the admin access code to view ready materials.</div>`;
++  }
++  renderPlaceholder("#telegramPublicationsTableBody", "Enter the admin access code to view publication history.", 4);
+   setHtml("#postsSummary", "");
++  setHtml("#currentStatusList", "");
+   setStatus("#sourcesStatus", "WAIT", "Source is not ready yet");
+   setStatus("#sourcesCount", "WAIT", "Sources added: 0");
+   setText("#pipelineStatusBadge", "Ready");
+   setText("#pipelineStatusMessage", "Enter the admin access code in Settings to unlock the pipeline.");
+-  setText("#quickActionNote", "Enter the admin access code in Settings to unlock private actions.");
++  setText("#pipelineInsight", "Enter the admin access code in Settings to unlock private workflow blocks.");
++  setText("#manualAiTestResult", "Enter the admin access code in Settings to test the AI generator.");
+ }
+ 
+ function sortByDateDesc(items, key) {
+@@ -2103,37 +2308,15 @@ function openPostModal(postId) {
+   if (textarea) textarea.value = generated;
+ 
+   const publishBtn = $("#publishPostBtn");
+-  const regenerateBtn = $("#regeneratePostBtn");
++  const editBtn = $("#editPostBtn");
++  const viewLogsBtn = $("#viewLogsBtn");
+   if (publishBtn) publishBtn.disabled = !hasAdminKey() || post.status === "published";
+-  if (regenerateBtn) regenerateBtn.disabled = !hasAdminKey() || !post.news_id;
++  if (editBtn) editBtn.disabled = !hasAdminKey();
++  if (viewLogsBtn) viewLogsBtn.disabled = !hasAdminKey();
+ 
+   openDialog("#postModal");
+ }
+ 
+-async function regeneratePost(postId) {
+-  if (!hasAdminKey()) {
+-    showToast("Add the admin access code in Settings to regenerate posts.", "warn");
+-    return;
+-  }
+-  const post = state.posts.find((item) => item.id === postId);
+-  if (!post?.news_id) {
+-    showToast("This post is missing its original news item.", "warn");
+-    return;
+-  }
+-  const done = withButtonState($("#regeneratePostBtn"), "Regenerating...");
+-  try {
+-    await api(`/api/news/${post.news_id}/generate`, { method: "POST" });
+-    done("success", "Regenerated");
+-    await loadPrivateData();
+-    renderAll();
+-    openPostModal(postId);
+-    showToast("Post regenerated", "ok");
+-  } catch (error) {
+-    done("error", "Error");
+-    showToast(`Could not regenerate post: ${error.message}`, "error");
+-  }
+-}
+-
+ async function publishPost(postId, generatedText = "") {
+   if (!hasAdminKey()) {
+     showToast("Add the admin access code in Settings to publish posts.", "warn");
+@@ -2156,23 +2339,35 @@ async function publishPost(postId, generatedText = "") {
+   }
+ }
+ 
+-async function deletePost(postId) {
++async function runManualAiTest() {
+   if (!hasAdminKey()) {
+-    showToast("Add the admin access code in Settings to delete posts.", "warn");
++    showToast("Add the admin access code in Settings to test the AI generator.", "warn");
+     return;
+   }
+-  const done = withButtonState($("#deletePostBtn"), "Deleting...");
++
++  const done = withButtonState($("#manualAiTestBtn"), "Testing...");
++  const title = normalize($("#manualAiTestTitle")?.value);
++  const text = normalize($("#manualAiTestText")?.value);
++  const mode = $("#manualAiTestMode")?.value === "demo" ? "demo" : "openai";
++
++  if (!text) {
++    done("warn", "Empty");
++    showToast("Add text to run the manual AI test.", "warn");
++    return;
++  }
++
+   try {
+-    await api(`/api/posts/${postId}`, { method: "DELETE" });
+-    done("success", "Deleted");
+-    await loadPrivateData();
+-    renderAll();
+-    state.selectedPostId = "";
+-    closeDialog("#postModal");
+-    showToast("Post deleted", "ok");
++    const result = await api("/api/generate/", {
++      method: "POST",
++      body: JSON.stringify({ title: title || null, text, mode }),
++    });
++    setText("#manualAiTestResult", JSON.stringify(result, null, 2));
++    done("success", "Done");
++    showToast("Manual AI test completed", "ok");
+   } catch (error) {
++    setText("#manualAiTestResult", error.message);
+     done("error", "Error");
+-    showToast(`Could not delete post: ${error.message}`, "error");
++    showToast(`Manual AI test failed: ${error.message}`, "error");
+   }
+ }
+ 
+@@ -2376,21 +2571,7 @@ function bindEvents() {
+   });
+   $("#startPipelineBtn")?.addEventListener("click", startPipeline);
+   $("#startPipelineFromSourceBtn")?.addEventListener("click", startPipelineFromSource);
+-  $("#parseNewsBtn")?.addEventListener("click", startPipeline);
+-  $("#generatePostsBtn")?.addEventListener("click", generateLatestPost);
+-  $("#publishPendingBtn")?.addEventListener("click", publishPendingPost);
+-  $("#undoDashboardBtn")?.addEventListener("click", undoDashboardView);
+-  $("#refreshBtn")?.addEventListener("click", async () => {
+-    const done = withButtonState($("#refreshBtn"), "Refreshing...");
+-    try {
+-      await refreshAll();
+-      done("success", "Refreshed");
+-      showToast("Panel refreshed", "ok");
+-    } catch (error) {
+-      done("error", "Error");
+-      showToast(`Refresh failed: ${error.message}`, "error");
+-    }
+-  });
++  $("#manualAiTestBtn")?.addEventListener("click", runManualAiTest);
+   $("#verifyOpenaiBtn")?.addEventListener("click", verifyOpenAI);
+   $("#checkTelegramBtn")?.addEventListener("click", checkTelegramConnection);
+   $("#saveSettingsBtn")?.addEventListener("click", saveSettings);
+@@ -2400,6 +2581,17 @@ function bindEvents() {
+     state.selectedPostId = "";
+     closeDialog("#postModal");
+   });
++  $("#editPostBtn")?.addEventListener("click", () => {
++    const textarea = $("#postModalGeneratedText");
++    textarea?.focus();
++    textarea?.select?.();
++  });
++  $("#viewLogsBtn")?.addEventListener("click", () => {
++    openSection("dashboardSection");
++    window.requestAnimationFrame(() => {
++      document.getElementById("activityTableBody")?.scrollIntoView({ behavior: "smooth", block: "center" });
++    });
++  });
+   $("#sourceForm")?.addEventListener("submit", submitSourceForm);
+   $("#themeForm")?.addEventListener("submit", addTheme);
+   $("#keywordForm")?.addEventListener("submit", addKeyword);
+@@ -2459,19 +2651,11 @@ function bindEvents() {
+     // Keep the current text in the textarea only. The publish button will read it directly.
+   });
+ 
+-  $("#regeneratePostBtn")?.addEventListener("click", async () => {
+-    if (!state.selectedPostId) return;
+-    await regeneratePost(state.selectedPostId);
+-  });
+   $("#publishPostBtn")?.addEventListener("click", async () => {
+     if (!state.selectedPostId) return;
+     const text = $("#postModalGeneratedText")?.value || "";
+     await publishPost(state.selectedPostId, text);
+   });
+-  $("#deletePostBtn")?.addEventListener("click", async () => {
+-    if (!state.selectedPostId) return;
+-    await deletePost(state.selectedPostId);
+-  });
+ 
+   document.body.addEventListener("click", async (event) => {
+     const target = event.target.closest("button, a, tr");
+@@ -2484,13 +2668,21 @@ function bindEvents() {
+       }
+       openSection(target.dataset.openSection);
+       renderPosts();
+-      if (target.dataset.focusPanel === "liveFeed") {
++      if (target.dataset.focusPanel === "status") {
++        window.requestAnimationFrame(() => {
++          document.getElementById("dashboardSection")?.scrollIntoView({ behavior: "smooth", block: "start" });
++        });
++      } else if (target.dataset.focusPanel === "readyMaterials") {
++        window.requestAnimationFrame(() => {
++          document.getElementById("readyMaterialsCard")?.scrollIntoView({ behavior: "smooth", block: "center" });
++        });
++      } else if (target.dataset.focusPanel === "errors") {
+         window.requestAnimationFrame(() => {
+-          document.getElementById("pipelineLiveFeedCard")?.scrollIntoView({ behavior: "smooth", block: "center" });
++          document.getElementById("errorLogsCard")?.scrollIntoView({ behavior: "smooth", block: "center" });
+         });
+-      } else if (target.dataset.focusPanel === "newsQueue") {
++      } else if (target.dataset.focusPanel === "logs") {
+         window.requestAnimationFrame(() => {
+-          document.getElementById("newsQueueCard")?.scrollIntoView({ behavior: "smooth", block: "center" });
++          document.getElementById("activityTableBody")?.scrollIntoView({ behavior: "smooth", block: "center" });
+         });
+       }
+       return;
+@@ -2543,6 +2735,22 @@ function bindEvents() {
+       return;
+     }
+ 
++    if (target.dataset.publishReadyPost) {
++      const post = state.posts.find((item) => item.id === target.dataset.publishReadyPost);
++      if (post) {
++        await publishPost(post.id, post.generated_text || post.news?.summary || post.news?.raw_text || "");
++      }
++      return;
++    }
++
++    if (target.dataset.viewLogs) {
++      openSection("dashboardSection");
++      window.requestAnimationFrame(() => {
++        document.getElementById("activityTableBody")?.scrollIntoView({ behavior: "smooth", block: "center" });
++      });
++      return;
++    }
++
+     if (target.closest("tr") && target.closest("#postsTableBody")) {
+       const row = target.closest("tr[data-open-post-id]");
+       if (row) {

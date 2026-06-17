@@ -16,7 +16,7 @@
       <div class="brand">
         <p class="eyebrow">AI News Publisher</p>
         <h1>Генерація AI-новин для сайту та Telegram-боту</h1>
-        <p class="lead">П'ять зрозумілих блоків для джерел, фільтрів, AI-редагування, публікації та налаштувань.</p>
+        <p class="lead">Стисла панель для запуску, статусу, джерел, генерації, логів і статистики.</p>
         <div id="panelStatusNote" class="panel-note">Панель готова до оновлення.</div>
       </div>
       <div class="top-actions">
@@ -27,9 +27,9 @@
     <div class="app-shell">
       <aside class="sidebar" aria-label="Навігація">
         <button class="nav-item" type="button" data-open-section="settingsSection">⚙️ Settings</button>
-        <button class="nav-item" type="button" data-open-section="sourcesSection">📰 Sources</button>
+        <button class="nav-item" type="button" data-open-section="sourcesSection">📰 Open Sources</button>
         <button class="nav-item" type="button" data-open-section="filtersSection">🔍 Filters</button>
-        <button class="nav-item" type="button" data-open-section="dashboardSection">📊 Dashboards</button>
+        <button class="nav-item" type="button" data-open-section="dashboardSection">📊 Dashboard</button>
         <button class="nav-item" type="button" data-open-section="postsSection">📄 Posts</button>
       </aside>
 
@@ -37,66 +37,31 @@
         <details id="dashboardSection" class="section" open>
           <summary>
             <span>Dashboard</span>
-            <small>pipeline · statistics · activity</small>
+            <small>pipeline · review · logs · stats</small>
           </summary>
 
           <div class="section-body">
             <div class="dashboard-grid">
-              <article class="dashboard-card dashboard-card--pipeline">
+              <article class="dashboard-card dashboard-card--pipeline dashboard-card--compact-start">
                 <div class="card-head">
                   <div>
-                    <p class="eyebrow">Pipeline Status</p>
-                    <h2>Pipeline Status</h2>
+                    <p class="eyebrow">Pipeline</p>
+                    <h2>Start Pipeline</h2>
                   </div>
-                  <button id="pipelineStatusBadge" class="status" type="button" data-open-section="dashboardSection" data-focus-panel="liveFeed">Ready</button>
+                  <button id="pipelineStatusBadge" class="status slim" type="button" data-open-section="dashboardSection" data-focus-panel="liveFeed">Waiting</button>
                 </div>
-                <p id="pipelineStatusMessage" class="hint">Pipeline paused. Start it when sources are ready.</p>
+                <p id="pipelineStatusMessage" class="hint">Use the small green button below to start the existing M4 pipeline.</p>
                 <div class="button-row">
                   <button id="startPipelineBtn" class="workflow-primary" type="button">Start Pipeline</button>
-                </div>
-                <div id="pipelineInsight" class="pipeline-insight">Ready means sources and settings can be checked, but no collection is running yet.</div>
-                <div id="pipelineStepper" class="stepper" aria-label="Pipeline stages"></div>
-              </article>
-
-              <article class="dashboard-card dashboard-card--stats">
-                <p class="eyebrow">Statistics</p>
-                <h2>Statistics</h2>
-                <div class="stats-grid">
-                  <button class="stat-tile" type="button" data-open-section="dashboardSection" data-focus-panel="newsQueue">
-                    <span>News Collected</span>
-                    <strong id="statNewsCollected">0</strong>
-                    <small>Open collected news</small>
-                  </button>
-                  <button class="stat-tile" type="button" data-open-section="filtersSection">
-                    <span>Ready for Generate Post</span>
-                    <strong id="statNewsFiltered">0</strong>
-                    <small>Open filters</small>
-                  </button>
-                  <button class="stat-tile" type="button" data-open-section="postsSection" data-post-filter="generated">
-                    <span>Posts Generated</span>
-                    <strong id="statPostsGenerated">0</strong>
-                    <small>Show generated posts</small>
-                  </button>
-                  <button class="stat-tile" type="button" data-open-section="postsSection" data-post-filter="published">
-                    <span>Posts Published</span>
-                    <strong id="statPostsPublished">0</strong>
-                    <small>Show published posts</small>
-                  </button>
-                  <button class="stat-tile" type="button" data-open-section="postsSection" data-post-filter="failed">
-                    <span>Failed Tasks</span>
-                    <strong id="statFailedTasks">0</strong>
-                    <small>Show failed items</small>
-                  </button>
                 </div>
               </article>
 
               <details id="pipelineLiveFeedCard" class="dashboard-card dashboard-card--live live-accordion" open>
                 <summary class="live-accordion-summary">
                   <div>
-                    <p class="eyebrow">Live Activity</p>
                     <h2>Current Pipeline Status</h2>
                   </div>
-                  <button id="pipelineLiveBadge" class="status slim" type="button" data-open-section="dashboardSection" data-focus-panel="liveFeed">Idle</button>
+                  <button id="pipelineLiveBadge" class="status slim" type="button" data-open-section="dashboardSection" data-focus-panel="liveFeed">Waiting</button>
                 </summary>
                 <div class="live-accordion-body">
                   <div class="live-summary-grid">
@@ -125,44 +90,50 @@
               <article id="newsQueueCard" class="dashboard-card dashboard-card--news dashboard-card--wide">
                 <div class="card-head">
                   <div>
-                    <p class="eyebrow">Collected News</p>
-                    <h2>Review and publish manually</h2>
+                    <p class="eyebrow">Errors & Recovery</p>
+                    <h2>Failed Tasks</h2>
                   </div>
-                  <button id="newsQueueBadge" class="status slim" type="button" data-open-section="dashboardSection" data-focus-panel="newsQueue">0 items</button>
+                  <button id="newsQueueBadge" class="status slim" type="button" data-open-section="sourcesSection">Open Sources</button>
                 </div>
-                <p class="hint">Choose a news item, edit the draft with AI, then send it to Telegram when you're ready.</p>
+                <div class="table-wrap">
+                  <table class="data-table">
+                    <thead>
+                      <tr>
+                        <th>Task</th>
+                        <th>Error</th>
+                        <th>Date</th>
+                        <th>Action</th>
+                      </tr>
+                    </thead>
+                    <tbody id="errorTasksTableBody"></tbody>
+                  </table>
+                </div>
+              </article>
+
+              <article class="dashboard-card dashboard-card--activity dashboard-card--wide">
+                <div class="card-head">
+                  <div>
+                    <p class="eyebrow">Generated Posts</p>
+                    <h2>Review, publish, and edit</h2>
+                  </div>
+                </div>
+                <div class="filter-row">
+                  <button class="status slim post-filter is-active" type="button" data-post-filter="generated">Generated</button>
+                  <button class="status slim post-filter" type="button" data-post-filter="published">Published</button>
+                  <button class="status slim post-filter" type="button" data-post-filter="failed">Failed</button>
+                  <button class="status slim post-filter" type="button" data-post-filter="">Show All</button>
+                </div>
                 <div class="table-wrap">
                   <table class="data-table data-table--clickable">
                     <thead>
                       <tr>
                         <th>Title</th>
                         <th>Source</th>
-                        <th>Status</th>
-                        <th>Actions</th>
-                      </tr>
-                    </thead>
-                    <tbody id="newsQueueTableBody"></tbody>
-                  </table>
-                </div>
-              </article>
-
-              <article class="dashboard-card dashboard-card--activity">
-                <div class="card-head">
-                  <div>
-                    <p class="eyebrow">Last Activity</p>
-                    <h2>Last Activity</h2>
-                  </div>
-                </div>
-                <div class="table-wrap">
-                  <table class="data-table">
-                    <thead>
-                      <tr>
-                        <th>Time</th>
-                        <th>Action</th>
+                        <th>Date</th>
                         <th>Status</th>
                       </tr>
                     </thead>
-                    <tbody id="activityTableBody"></tbody>
+                    <tbody id="dashboardPostsTableBody"></tbody>
                   </table>
                 </div>
               </article>
@@ -170,10 +141,15 @@
               <details id="errorLogsCard" class="dashboard-card dashboard-card--logs live-accordion" open>
                 <summary class="live-accordion-summary">
                   <div>
-                    <p class="eyebrow">Logs & Fixes</p>
-                    <h2>Failed Tasks and Recovery Hints</h2>
+                    <p class="eyebrow">Logs</p>
+                    <h2>Logs & Recovery</h2>
                   </div>
-                  <button id="errorLogsBadge" class="status slim" type="button" data-open-section="settingsSection">No errors</button>
+                  <div class="log-filters" role="tablist" aria-label="Log filters">
+                    <button class="status slim log-filter is-active" type="button" data-log-filter="all">All</button>
+                    <button class="status slim log-filter" type="button" data-log-filter="info">Info</button>
+                    <button class="status slim log-filter" type="button" data-log-filter="warning">Warning</button>
+                    <button class="status slim log-filter" type="button" data-log-filter="error">Error</button>
+                  </div>
                 </summary>
                 <div class="live-accordion-body">
                   <div id="errorLogsSummary" class="live-summary">No errors recorded yet.</div>
@@ -186,23 +162,35 @@
                 </div>
               </details>
 
-              <article class="dashboard-card dashboard-card--actions">
-                <p class="eyebrow">Quick Actions</p>
-                <h2>Quick Actions</h2>
+              <article class="dashboard-card dashboard-card--actions dashboard-card--wide">
+                <p class="eyebrow">Statistics</p>
+                <h2>Statistics</h2>
                 <div class="button-grid">
-                  <button id="parseNewsBtn" class="workflow-primary" type="button">Fetch News</button>
-                  <button id="generatePostsBtn" class="secondary" type="button">Generate Post (AI)</button>
-                  <button id="publishPendingBtn" class="secondary" type="button">Send to Telegram</button>
-                  <button id="undoDashboardBtn" class="secondary" type="button">Undo Dashboard</button>
-                  <button id="refreshBtn" class="secondary" type="button">Refresh</button>
-                </div>
-                <div id="quickActionNote" class="hint">Guided workflow: Fetch News → Generate Post → Review → Send to Telegram.</div>
-                <div class="action-guide">
-                  <div><strong>Fetch News</strong><span>collects fresh items from enabled RSS and Telegram sources.</span></div>
-                  <div><strong>Generate Post (AI)</strong><span>creates one AI draft only after the user clicks it.</span></div>
-                  <div><strong>Send to Telegram</strong><span>sends the first generated or pending post to Telegram.</span></div>
-                  <div><strong>Undo Dashboard</strong><span>resets the open panels and returns the dashboard to its default view.</span></div>
-                  <div><strong>Refresh</strong><span>reloads dashboard data, task status, posts, sources, and errors.</span></div>
+                  <button class="stat-tile" type="button" data-open-section="sourcesSection">
+                    <span>Sources</span>
+                    <strong id="statSources">0</strong>
+                    <small>Open Sources</small>
+                  </button>
+                  <button class="stat-tile" type="button" data-open-section="dashboardSection" data-focus-panel="newsQueue">
+                    <span>Articles Found</span>
+                    <strong id="statArticlesFound">0</strong>
+                    <small>Collected items</small>
+                  </button>
+                  <button class="stat-tile" type="button" data-open-section="postsSection" data-post-filter="generated">
+                    <span>Posts Generated</span>
+                    <strong id="statPostsGenerated">0</strong>
+                    <small>Drafts ready</small>
+                  </button>
+                  <button class="stat-tile" type="button" data-open-section="postsSection" data-post-filter="published">
+                    <span>Posts Published</span>
+                    <strong id="statPostsPublished">0</strong>
+                    <small>Telegram sent</small>
+                  </button>
+                  <button class="stat-tile" type="button" data-open-section="postsSection" data-post-filter="failed">
+                    <span>Failed Tasks</span>
+                    <strong id="statFailedTasks">0</strong>
+                    <small>Needs attention</small>
+                  </button>
                 </div>
               </article>
             </div>
@@ -408,7 +396,12 @@
                 <p class="lead">Click a row to open the original news and the generated text. Regenerate, publish, or delete from one modal.</p>
                 <p class="hint">Generate creates the first AI draft. Regenerate replaces the draft with a fresh AI version after you review it.</p>
               </div>
-              <div id="postsSummary" class="status-grid"></div>
+              <div class="filter-row">
+                <button class="status slim post-filter is-active" type="button" data-post-filter="generated">Generated</button>
+                <button class="status slim post-filter" type="button" data-post-filter="published">Published</button>
+                <button class="status slim post-filter" type="button" data-post-filter="failed">Failed</button>
+                <button class="status slim post-filter" type="button" data-post-filter="">Show All</button>
+              </div>
             </div>
 
             <article class="panel">
@@ -418,8 +411,8 @@
                     <tr>
                       <th>Title</th>
                       <th>Source</th>
+                      <th>Date</th>
                       <th>Status</th>
-                      <th>Created At</th>
                     </tr>
                   </thead>
                   <tbody id="postsTableBody"></tbody>
@@ -585,13 +578,13 @@
 
         <div class="post-modal-grid">
           <article class="panel">
-            <p class="eyebrow">Original News</p>
+            <p class="eyebrow">Review</p>
             <h3 id="postModalNewsTitle">News title</h3>
             <div id="postModalOriginal" class="content-box"></div>
           </article>
 
           <article class="panel">
-            <p class="eyebrow">Generated Text</p>
+            <p class="eyebrow">Generated text</p>
             <div class="post-cover-preview">
               <img id="postModalCoverImage" alt="Generated cover preview" hidden />
               <div id="postModalCoverFallback" class="post-cover-fallback">AI creates a minimal cover image for this post.</div>
