@@ -350,7 +350,7 @@ async function requestJson(path, options = {}, auth = true) {
       },
     });
   } catch {
-    throw new Error("Не вдалося з'єднатися з API. Перевір, що сервер запущено.");
+    throw new Error("Could not connect to the API. Check that the server is running.");
   } finally {
     if (timeoutHandle) window.clearTimeout(timeoutHandle);
   }
@@ -486,7 +486,7 @@ function topicByIdList() {
   return state.topics;
 }
 
-function renderTopicSelectOptions(selector, selectedValue = "", placeholder = "Global / no theme") {
+function renderTopicSelectOptions(selector, selectedValue = "", placeholder = "Global / no topic") {
   const node = $(selector);
   if (!node) return;
   const current = normalize(selectedValue);
@@ -546,10 +546,10 @@ function translateStageState(value) {
 
 function statusExplanation(value) {
   const map = {
-    Ready: "Ready means the dashboard can start a new run, but no collection is active right now.",
-    Running: "Running means Celery is fetching sources and checking which items are ready for manual AI generation.",
-    Done: "Done means the collection task finished. Generate Post stays manual so you can review the draft first.",
-    Error: "Error means the task failed. Check Failed Tasks, source errors, and logs.",
+    Ready: "Ready means the dashboard can start a new run.",
+    Running: "Running means the pipeline is collecting sources right now.",
+    Done: "Done means the run finished and posts stay in manual review.",
+    Error: "Error means the run failed. Check the issue log.",
   };
   return map[value] || map.Ready;
 }
@@ -570,31 +570,29 @@ function stageExplanation(stageKey, stageState) {
 
 function pipelineOutcomeMessage(meta, context) {
   if (context.running) {
-    return `Running: ${translateStageLabel(meta.stage_label || meta.stage_key || "Pipeline Started")}. Watch the live feed below for active changes.`;
+    return `Running: ${translateStageLabel(meta.stage_label || meta.stage_key || "Pipeline Started")}.`;
   }
   if (context.failed) {
-    return explainErrorBody(context.status.task_result || context.status.task_meta, "Pipeline finished with an error");
+    return "Pipeline finished with issues.";
   }
   if (context.status.task_state === "SUCCESS") {
     const newItems = Number(meta.new_items || 0);
     const ready = Number(meta.ready_for_generation ?? meta.queued_for_ai ?? 0);
-    const errors = Number(meta.errors || 0);
-    if (!newItems && !ready && !errors) {
-      return "Pipeline finished quickly: no new news was found, so there was nothing to generate manually.";
+    if (!newItems && !ready) {
+      return "Pipeline finished with no new items.";
     }
-    return `Pipeline finished: ${newItems} new, ${ready} ready for Generate Post, ${errors} failed source checks.`;
+    return `Pipeline finished: ${newItems} new items, ${ready} ready for AI review.`;
   }
-  return "Ready means sources and settings can be checked, but no collection is running yet.";
+  return "Ready to run.";
 }
 
 function pipelineToastMessage(status) {
   const meta = status.task_result && Object.keys(status.task_result).length ? status.task_result : status.task_meta || {};
-  if (status.task_state === "FAILURE") return "Pipeline finished with an error. Check Failed Tasks and source errors.";
+  if (status.task_state === "FAILURE") return "Pipeline finished with issues.";
   const newItems = Number(meta.new_items || 0);
   const ready = Number(meta.ready_for_generation ?? meta.queued_for_ai ?? 0);
-  const errors = Number(meta.errors || 0);
-  if (!newItems && !ready && !errors) return "Pipeline completed quickly: no new news was found, so nothing was generated.";
-  return `Pipeline completed: ${newItems} new, ${ready} ready for Generate Post, ${errors} failed.`;
+  if (!newItems && !ready) return "Pipeline completed with no new items.";
+  return `Pipeline completed: ${newItems} new items, ${ready} ready for AI review.`;
 }
 
 function pipelineContext() {
@@ -641,21 +639,21 @@ function renderPublicState() {
     } else {
       link.href = "#settingsSection";
       link.setAttribute("data-open-section", "settingsSection");
-      link.textContent = "📢 Telegram connection scenario";
+      link.textContent = "📢 Telegram setup";
       link.classList.add("is-warn");
-      link.title = "Open Settings to finish Telegram connection";
+      link.title = "Open Settings to finish Telegram setup";
     }
   }
 
   if (!hasAdminKey()) {
     setText(
       "#panelStatusNote",
-      connected ? "Telegram connected. Add the admin access code in Settings to unlock private data." : "Add the admin access code in Settings to unlock private data and Telegram setup."
+      connected ? "Telegram is connected. Add the admin access code in Settings to unlock private data." : "Add the admin access code in Settings to unlock private data."
     );
   } else if (connected) {
     setText("#panelStatusNote", `Telegram connected to ${target || "the configured channel"}. Private blocks are unlocked.`);
   } else {
-    setText("#panelStatusNote", "Private blocks are unlocked. Telegram is shown as a connection scenario until the channel is confirmed.");
+    setText("#panelStatusNote", "Private data is unlocked. Telegram stays in setup mode until the channel is confirmed.");
   }
 }
 
@@ -715,7 +713,7 @@ function renderSourceTemplates() {
     readyButton.classList.toggle("is-ready", readyCount > 0);
     readyButton.classList.toggle("is-wait", readyCount === 0);
   }
-  setText("#readyTemplatesCount", readyCount ? `${readyCount} available` : "No templates yet");
+  setText("#readyTemplatesCount", readyCount ? `${readyCount} ready` : "No templates");
 
   const searchStatus = $("#sourceTemplateSearchStatus");
   if (searchStatus) {
@@ -723,9 +721,9 @@ function renderSourceTemplates() {
     searchStatus.classList.add(state.sourceTemplateQuery ? (filteredCount ? "status--ok" : "status--wait") : "status--wait");
     searchStatus.textContent = state.sourceTemplateQuery
       ? filteredCount
-        ? `${filteredCount} result${filteredCount === 1 ? "" : "s"} matched your search.`
-        : "No templates matched the current search."
-      : "Search for templates to see matching results.";
+        ? `${filteredCount} result${filteredCount === 1 ? "" : "s"} matched.`
+        : "No templates matched."
+      : "Ready templates only.";
   }
 
   const renderGroup = (selectors, type, emptyText) => {
@@ -739,8 +737,8 @@ function renderSourceTemplates() {
     });
   };
 
-  renderGroup(["#rssVisibleSuggestionsList"], "site", "No RSS templates match your search.");
-  renderGroup(["#telegramVisibleSuggestionsList"], "tg", "No Telegram templates match your search.");
+  renderGroup(["#rssVisibleSuggestionsList"], "site", "No RSS templates.");
+  renderGroup(["#telegramVisibleSuggestionsList"], "tg", "No Telegram templates.");
 }
 
 function findPostByNewsId(newsId) {
@@ -805,15 +803,15 @@ function renderNewsQueue() {
     })),
   ];
 
-  setStatus("#newsQueueBadge", rows.length ? "ERROR" : "OK", rows.length ? `${rows.length} failed` : "No failures");
+  setStatus("#newsQueueBadge", rows.length ? "ERROR" : "OK", rows.length ? `${rows.length} issues` : "No issues");
 
   if (!hasAdminKey()) {
-    renderPlaceholder("#errorTasksTableBody", "Enter the admin access code to review failed tasks.", 4);
+    renderPlaceholder("#errorTasksTableBody", "Enter the admin access code to review issues.", 4);
     return;
   }
 
   if (!rows.length) {
-    renderPlaceholder("#errorTasksTableBody", "No failed tasks yet.", 4);
+    renderPlaceholder("#errorTasksTableBody", "No issues yet.", 4);
     return;
   }
 
@@ -822,7 +820,7 @@ function renderNewsQueue() {
       (row) => `
         <tr>
           <td data-label="Task">${escapeHtml(row.task)}</td>
-          <td data-label="Error">${escapeHtml(row.error)}</td>
+          <td data-label="Issue">${escapeHtml(row.error)}</td>
           <td data-label="Date">${escapeHtml(row.date)}</td>
           <td data-label="Action">${row.action}</td>
         </tr>`
@@ -879,7 +877,7 @@ function renderSourceModalState() {
     delete themeSelect.dataset.selectedValue;
   }
 
-  if (title) title.textContent = mode === "edit" ? "Edit source" : "Add source (manual)";
+  if (title) title.textContent = mode === "edit" ? "Edit source" : "Add source";
   if (submit) submit.textContent = mode === "edit" ? "Update source" : "Save source";
   const editBanner = $("#sourceEditBanner");
   if (editBanner) {
@@ -887,18 +885,18 @@ function renderSourceModalState() {
     editBanner.classList.add(mode === "edit" ? "status--ok" : "status--wait");
     editBanner.textContent =
       mode === "edit"
-        ? "Editing mode: update the fields below, then press Save source."
-        : "Create mode: fill the editable fields below, then press Save source.";
+        ? "Edit mode: update the fields below, then save."
+        : "Create mode: fill the fields below, then save.";
   }
   if (hint) {
     hint.textContent =
       type === "tg"
-        ? "For Telegram, use @username or a t.me link. Pick a theme if this channel should feed theme-scoped keywords."
-        : "For RSS, use the full feed URL. Pick a theme if this website should feed theme-scoped keywords.";
+        ? "Use @username or a t.me link for Telegram."
+        : "Use the full feed URL for RSS.";
   }
   const enabled = $("#sourceEnabled");
   if (enabled && !enabled.checked) {
-    setStatus("#sourceSaveStatus", "WAIT", "Source is currently disabled");
+    setStatus("#sourceSaveStatus", "WAIT", "Source is disabled");
   }
   if (submit) {
     submit.disabled = !hasAdminKey();
@@ -925,7 +923,7 @@ function openSourceModal({ type = "site", source = null } = {}) {
   if (themeField) themeField.dataset.selectedValue = source?.topic_id || "";
 
   renderSourceModalState();
-  setStatus("#sourceSaveStatus", "WAIT", source ? "Edit the source and save changes." : "Ready to save the source.");
+  setStatus("#sourceSaveStatus", "WAIT", source ? "Edit the source, then save." : "Ready to save.");
   openDialog("#sourceModal");
   window.requestAnimationFrame(() => {
     nameField?.focus();
@@ -966,7 +964,7 @@ function renderSourceRow(source) {
       ? source.topic_id
         ? `Source is ready under ${themeName}`
         : "Source is ready"
-      : "Source is waiting";
+      : "Source is disabled";
   const href = sourceHref(source.url);
   return `
     <tr data-source-id="${escapeHtml(source.id)}">
@@ -977,7 +975,7 @@ function renderSourceRow(source) {
       <td data-label="Type">
         <span class="badge ${infoTone === "error" ? "badge--error" : "badge--ok"}">${escapeHtml(sourceTypeLabel(source.type))}</span>
       </td>
-      <td data-label="Theme">
+      <td data-label="Topic">
         <span class="badge ${source.topic_id ? "badge--ok" : "badge--wait"}">${escapeHtml(themeName)}</span>
         <div class="row-subtle">${escapeHtml(source.topic_id ? themeSlug : "Global source")}</div>
       </td>
@@ -1006,7 +1004,7 @@ function renderThemeRow(topic) {
   const keywordCount = state.keywords.filter((item) => item.topic_id === topic.id).length;
   return `
     <tr>
-      <td data-label="Theme">
+      <td data-label="Topic">
         <div class="row-title">${escapeHtml(topic.name)}</div>
         <div class="row-subtle">${escapeHtml(topic.slug)}</div>
       </td>
@@ -1039,7 +1037,7 @@ function renderSources() {
     if (locked) {
       renderPlaceholder("#sourcesTableBody", "Enter the admin access code to manage sources.", 5);
     } else if (!total) {
-      renderPlaceholder("#sourcesTableBody", "No sources added yet. Use Add source (manual) or a ready template to unlock the workflow.", 5);
+      renderPlaceholder("#sourcesTableBody", "No sources yet. Use Add source or a ready template to unlock the workflow.", 5);
     } else {
       body.innerHTML = state.sources.map(renderSourceRow).join("");
     }
@@ -1055,17 +1053,17 @@ function renderSources() {
   }
 
   if (!total) {
-    setStatus("#sourcesStatus", "WAIT", "Source is not ready yet");
-    setStatus("#sourcesCount", "WAIT", "Sources added: 0");
+    setStatus("#sourcesStatus", "WAIT", "Source not ready");
+    setStatus("#sourcesCount", "WAIT", "Sources: 0");
   } else if (errors) {
-    setStatus("#sourcesStatus", "ERROR", `${errors} source${errors === 1 ? "" : "s"} need attention`);
-    setStatus("#sourcesCount", "OK", `Sources added: ${total}`);
+    setStatus("#sourcesStatus", "ERROR", `${errors} source${errors === 1 ? "" : "s"} need review`);
+    setStatus("#sourcesCount", "OK", `Sources: ${total}`);
   } else if (disabled) {
-    setStatus("#sourcesStatus", "WAIT", `${disabled} source${disabled === 1 ? "" : "s"} waiting`);
-    setStatus("#sourcesCount", "OK", `Sources added: ${total}`);
+    setStatus("#sourcesStatus", "WAIT", `${disabled} source${disabled === 1 ? "" : "s"} disabled`);
+    setStatus("#sourcesCount", "OK", `Sources: ${total}`);
   } else {
     setStatus("#sourcesStatus", "OK", "Source is ready");
-    setStatus("#sourcesCount", "OK", `Sources added: ${total}`);
+    setStatus("#sourcesCount", "OK", `Sources: ${total}`);
   }
 
   renderSourceTemplates();
@@ -1076,11 +1074,11 @@ function renderThemes() {
   const body = $("#themesTableBody");
   if (!body) return;
   if (!hasAdminKey()) {
-    renderPlaceholder("#themesTableBody", "Enter the admin access code to manage themes.", 3);
+    renderPlaceholder("#themesTableBody", "Enter the admin access code to manage topics.", 3);
     return;
   }
   if (!state.topics.length) {
-    renderPlaceholder("#themesTableBody", "No themes yet. Add the first theme to group sources and keywords.", 3);
+    renderPlaceholder("#themesTableBody", "No topics yet. Add the first topic to group sources and keywords.", 3);
     return;
   }
 
@@ -1108,7 +1106,7 @@ function renderKeywords() {
           <td data-label="Keyword">
             <span class="badge badge--ok">${escapeHtml(keyword.word)}</span>
           </td>
-          <td data-label="Theme">
+          <td data-label="Topic">
             <span class="badge ${keyword.topic_id ? "badge--ok" : "badge--wait"}">${escapeHtml(themeName)}</span>
             <div class="row-subtle">${escapeHtml(keyword.topic_id ? themeSlug : "Global keyword")}</div>
           </td>
@@ -1232,28 +1230,19 @@ function renderPipelineStepper() {
   const startBtn = $("#startPipelineBtn");
   if (startBtn) startBtn.disabled = buttonLocked || context.running;
 
-  const badgeText = context.running ? "Running" : context.failed ? "Error" : context.status.task_state === "SUCCESS" ? "Success" : "Waiting";
+  const badgeText = context.running ? "Running" : context.failed ? "Error" : context.status.task_state === "SUCCESS" ? "Success" : "Ready";
   const badgeToken = context.running ? "RUN" : context.failed ? "ERROR" : context.status.task_state === "SUCCESS" ? "OK" : "WAIT";
   setStatus("#pipelineStatusBadge", badgeToken, badgeText);
   setStatus("#pipelineLiveBadge", badgeToken, badgeText);
 
   let message = pipelineOutcomeMessage(meta, context);
   if (buttonLocked) {
-    message = "Enter the admin access code in Settings to unlock the pipeline.";
+    message = "Add the admin access code in Settings to unlock the pipeline.";
   }
   setText("#pipelineStatusMessage", message);
   setText("#pipelineLiveSummary", message);
 
-  const statusLabel = context.running ? "Running" : context.failed ? "Error" : context.status.task_state === "SUCCESS" ? "Success" : "Waiting";
-  setText("#pipelineLiveCurrentAction", context.running ? "Running now" : "Waiting");
-  setText("#pipelineLiveActiveStage", context.running ? translateStageLabel(meta.stage_label || meta.stage_key || "Pipeline Started") || "Running" : statusLabel);
-  setText("#pipelineLiveLastAction", context.status.task_state ? `Pipeline status: ${statusLabel}` : "No pipeline activity yet.");
-  setText(
-    "#pipelineLiveErrors",
-    context.failed ? "Error" : (state.errorLogs || []).length ? `${state.errorLogs.length} logged` : "No errors"
-  );
-
-  return statusLabel.toLowerCase();
+  return badgeText.toLowerCase();
 }
 
 function buildActivityRows() {
@@ -1328,54 +1317,26 @@ function buildLiveFeedRows() {
   const rows = [];
   const now = Date.now();
   const readyCount = Number(meta.ready_for_generation ?? meta.queued_for_ai ?? 0);
-  const lastError = (state.errorLogs || []).slice(-1)[0] || "";
-  const activeStage = context.running ? translateStageLabel(meta.stage_label || meta.stage_key || "Pipeline Started") : "Idle";
 
   rows.push({
     ts: now,
     title: context.running
-      ? `Current action: ${translateStageLabel(meta.stage_label || meta.stage_key || "Start")}`
-      : "Current action: pipeline is idle",
-    meta: context.running
-      ? pipelineOutcomeMessage(meta, context)
-      : "Start Pipeline to fetch news sources and prepare items for manual AI generation.",
+      ? `Pipeline running: ${translateStageLabel(meta.stage_label || meta.stage_key || "Start")}`
+      : context.failed
+        ? "Pipeline finished with issues"
+        : "Pipeline ready",
+    meta: context.running ? pipelineOutcomeMessage(meta, context) : "Run the pipeline to collect sources and prepare drafts.",
     tone: context.running ? "run" : context.failed ? "error" : "wait",
   });
 
-  if (meta.sources || meta.new_items || meta.duplicates || readyCount || meta.errors) {
+  if (meta.sources || meta.new_items || meta.duplicates || readyCount) {
     rows.push({
       ts: now - 1,
-      title: `Run counters: ${Number(meta.new_items || 0)} new, ${Number(meta.duplicates || 0)} duplicates, ${readyCount} ready for Generate Post`,
-      meta: `${Number(meta.sources || 0)} enabled sources checked, ${Number(meta.errors || 0)} source errors.`,
-      tone: Number(meta.errors || 0) ? "error" : "ok",
+      title: `Run counters: ${Number(meta.new_items || 0)} new, ${Number(meta.duplicates || 0)} duplicates, ${readyCount} ready`,
+      meta: `${Number(meta.sources || 0)} enabled sources checked.`,
+      tone: "ok",
     });
   }
-
-  rows.push({
-    ts: now - 2,
-    title: `Active stage: ${activeStage}`,
-    meta: context.running ? "The current stage updates automatically while the collection task is active." : "No active collection stage right now.",
-    tone: context.running ? "run" : "wait",
-  });
-
-  rows.push({
-    ts: now - 3,
-    title: "Last action",
-    meta:
-      state.posts[0]?.status
-        ? `Most recent post status: ${postStatusInfo(state.posts[0].status).label}.`
-        : state.news[0]?.title
-          ? `Last collected item: ${state.news[0].title}.`
-          : "No previous action yet.",
-    tone: state.posts[0]?.status === "failed" || state.posts[0]?.status === "rejected" ? "error" : "ok",
-  });
-
-  rows.push({
-    ts: now - 4,
-    title: "Errors",
-    meta: lastError || (meta.errors ? `${meta.errors} source errors were captured in the last run.` : "No errors recorded."),
-    tone: lastError || meta.errors ? "error" : "ok",
-  });
 
   [...state.news].slice(0, 5).forEach((item, index) => {
     rows.push({
@@ -1396,55 +1357,16 @@ function buildLiveFeedRows() {
     });
   });
 
-  (state.errorLogs || []).slice(-3).forEach((line, index) => {
-    rows.push({
-      ts: now - (index + 20) * 60000,
-      title: "Error log entry",
-      meta: line,
-      tone: "error",
-    });
-  });
-
   return rows.sort((left, right) => right.ts - left.ts).slice(0, 12);
 }
 
 function renderLiveFeed() {
   const context = pipelineContext();
   const meta = context.meta || {};
-  const liveBadge = context.running ? "Live" : context.failed ? "Needs attention" : context.status.task_state === "SUCCESS" ? "Done" : "Idle";
+  const liveBadge = context.running ? "Live" : context.failed ? "Needs attention" : context.status.task_state === "SUCCESS" ? "Done" : "Ready";
   const liveToken = context.running ? "RUN" : context.failed ? "ERROR" : context.status.task_state === "SUCCESS" ? "OK" : "WAIT";
   setStatus("#pipelineLiveBadge", liveToken, liveBadge);
   setText("#pipelineLiveSummary", pipelineOutcomeMessage(meta, context));
-
-  const readyCount = Number(meta.ready_for_generation ?? meta.queued_for_ai ?? 0);
-  setText(
-    "#pipelineLiveCurrentAction",
-    context.running
-      ? `Collecting ${translateStageLabel(meta.stage_label || meta.stage_key || "Pipeline Started")}`
-      : "Waiting for a manual start."
-  );
-  setText(
-    "#pipelineLiveActiveStage",
-    context.running ? translateStageLabel(meta.stage_label || meta.stage_key || "Pipeline Started") || "Idle" : "Idle"
-  );
-  setText(
-    "#pipelineLiveLastAction",
-    state.posts[0]?.status
-      ? `Latest post status: ${postStatusInfo(state.posts[0].status).label}`
-      : state.news[0]?.title
-        ? `Latest news item: ${state.news[0].title}`
-        : "No actions yet."
-  );
-  setText(
-    "#pipelineLiveErrors",
-    (state.errorLogs || []).length
-      ? `${state.errorLogs.length} error${state.errorLogs.length === 1 ? "" : "s"} logged`
-      : Number(meta.errors || 0)
-        ? `${Number(meta.errors)} source error${Number(meta.errors) === 1 ? "" : "s"} in the latest run`
-        : readyCount
-          ? "No blocking errors"
-          : "No errors."
-  );
 
   setHtml(
     "#pipelineLiveFeed",
@@ -1506,9 +1428,7 @@ function renderErrorLogsPanel() {
   });
   setText(
     "#errorLogsSummary",
-    filtered.length
-      ? "Use the filters to narrow down operational logs."
-      : "No errors recorded yet. When something fails, the related fix path will appear here."
+    filtered.length ? "Use the filters to narrow the log." : "No log entries yet."
   );
 
   document.querySelectorAll("[data-log-filter]").forEach((button) => {
@@ -1516,7 +1436,7 @@ function renderErrorLogsPanel() {
   });
 
   if (!filtered.length) {
-    setHtml("#errorLogsList", `<div class="empty-state">No log lines match this filter.</div>`);
+    setHtml("#errorLogsList", `<div class="empty-state">No log entries match this filter.</div>`);
     return;
   }
 
@@ -1529,7 +1449,7 @@ function renderErrorLogsPanel() {
           <div class="live-item">
             <span class="live-dot"></span>
             <div>
-              <div class="live-title">Failed task</div>
+              <div class="live-title">Log entry</div>
               <div class="live-meta">${escapeHtml(line)}</div>
               <div class="live-meta">${escapeHtml(fix.hint)}</div>
             </div>
@@ -1650,10 +1570,10 @@ function renderTelegramStatus() {
   setStatus(
     "#settingsTelegramConnectionStatus",
     connected ? "OK" : check && check.status && check.status !== "missing_bot" && check.status !== "missing_channel" ? "ERROR" : "WAIT",
-    connected ? "Telegram connected and ready" : "Telegram connection scenario"
+    connected ? "Telegram connected and ready" : "Telegram setup"
   );
 
-  let reason = "Telegram connection scenario will explain what is missing.";
+  let reason = "Telegram setup will explain what is missing.";
   if (check?.message) {
     reason = check.message;
   } else if (!botOk && !channelOk) {
@@ -1716,16 +1636,16 @@ function renderSettings() {
 }
 
 function renderLockedPrivateBlocks() {
-  renderPlaceholder("#themesTableBody", "Enter the admin access code to manage themes.", 3);
+  renderPlaceholder("#themesTableBody", "Enter the admin access code to manage topics.", 3);
   renderPlaceholder("#keywordsTableBody", "Enter the admin access code to manage keywords.", 3);
   renderPlaceholder("#postsTableBody", "Enter the admin access code to view generated posts.", 4);
   renderPlaceholder("#sourcesTableBody", "Enter the admin access code to manage sources.", 5);
   setHtml("#postsSummary", "");
-  setStatus("#sourcesStatus", "WAIT", "Source is not ready yet");
-  setStatus("#sourcesCount", "WAIT", "Sources added: 0");
+  setStatus("#sourcesStatus", "WAIT", "Source not ready");
+  setStatus("#sourcesCount", "WAIT", "Sources: 0");
   setText("#pipelineStatusBadge", "Ready");
-  setText("#pipelineStatusMessage", "Enter the admin access code in Settings to unlock the pipeline.");
-  setText("#quickActionNote", "Enter the admin access code in Settings to unlock private actions.");
+  setText("#pipelineStatusMessage", "Add the admin access code in Settings to unlock the pipeline.");
+  setText("#quickActionNote", "Add the admin access code in Settings to unlock private actions.");
 }
 
 function sortByDateDesc(items, key) {
@@ -1896,7 +1816,7 @@ function undoDashboardView() {
 async function addTheme(event) {
   event.preventDefault();
   if (!hasAdminKey()) {
-    showToast("Add the admin access code in Settings to manage themes.", "warn");
+    showToast("Add the admin access code in Settings to manage topics.", "warn");
     return;
   }
 
@@ -1905,7 +1825,7 @@ async function addTheme(event) {
   const name = normalize(input?.value);
   if (!name) {
     done("warn", "Empty");
-    showToast("Theme cannot be empty", "warn");
+    showToast("Topic cannot be empty", "warn");
     return;
   }
 
@@ -1919,7 +1839,7 @@ async function addTheme(event) {
 
   if (duplicate) {
     done("warn", "Duplicate");
-    showToast("Theme already exists", "warn");
+    showToast("Topic already exists", "warn");
     return;
   }
 
@@ -1933,7 +1853,7 @@ async function addTheme(event) {
     renderAll();
     renderTopicSelectOptions("#keywordThemeSelect", created.id);
     done("success", "Added");
-    showToast("Theme added", "ok");
+    showToast("Topic added", "ok");
     window.requestAnimationFrame(() => {
       input?.focus();
     });
@@ -2391,7 +2311,7 @@ function bindEvents() {
   });
 
   $("#openSourceModalBtn")?.addEventListener("click", () => openSourceModal());
-  $("#openReadyTemplatesBtn")?.addEventListener("click", () => openSourceTemplatesLibrary({ focusSearch: true, expandAll: true }));
+  $("#openReadyTemplatesBtn")?.addEventListener("click", () => openSourceTemplatesLibrary({ expandAll: true }));
   $("#manageSourcesBtn")?.addEventListener("click", () => {
     document.getElementById("sourcesManagementPanel")?.scrollIntoView({ behavior: "smooth", block: "start" });
   });
@@ -2434,27 +2354,6 @@ function bindEvents() {
 
   $("#sourceType")?.addEventListener("change", renderSourceModalState);
   $("#sourceEnabled")?.addEventListener("change", renderSourceModalState);
-  $("#sourceTemplateSearch")?.addEventListener("input", (event) => {
-    state.sourceTemplateDraftQuery = event.target.value;
-  });
-  $("#sourceTemplateSearch")?.addEventListener("keydown", (event) => {
-    if (event.key === "Enter") {
-      event.preventDefault();
-      searchSourceTemplates();
-    }
-  });
-  $("#runSourceTemplateSearchBtn")?.addEventListener("click", async () => {
-    const done = withButtonState($("#runSourceTemplateSearchBtn"), "Searching...");
-    try {
-      searchSourceTemplates();
-      const resultCount = mergedSourceSuggestions("site").length + mergedSourceSuggestions("tg").length;
-      done("success", resultCount ? `${resultCount} results` : "No results");
-      showToast(resultCount ? `Search complete: ${resultCount} templates found` : "No templates matched your search", resultCount ? "ok" : "warn");
-    } catch (error) {
-      done("error", "Error");
-      showToast(`Could not search templates: ${error.message}`, "error");
-    }
-  });
 
   $("#apiKey")?.addEventListener("input", () => {
     syncDraftFromInputs();

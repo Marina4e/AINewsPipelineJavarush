@@ -604,6 +604,17 @@ details[open] > summary::after {
   gap: 1rem;
 }
 
+.filters-combined-grid {
+  display: grid;
+  gap: 0.9rem;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.filters-combined-section {
+  display: grid;
+  gap: 0.7rem;
+}
+
 .dashboard-grid {
   grid-template-columns: repeat(2, minmax(0, 1fr));
 }
@@ -637,6 +648,14 @@ details[open] > summary::after {
 .panel {
   padding: 0.9rem;
   border-radius: var(--radius-lg);
+}
+
+.settings-grid {
+  gap: 0.75rem;
+}
+
+.settings-grid .panel {
+  padding: 0.75rem;
 }
 
 .card-head,
@@ -1307,7 +1326,17 @@ small {
 .settings-actions {
   display: flex;
   justify-content: flex-end;
-  margin-top: 1rem;
+  margin-top: 0.75rem;
+}
+
+.developer-tools .dev-tools {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  width: 100%;
+}
+
+.developer-tools .dev-tools .link-button {
+  width: 100%;
 }
 
 .source-summary,
@@ -1578,6 +1607,11 @@ small {
     justify-content: flex-start;
   }
 
+  .filters-combined-grid,
+  .developer-tools .dev-tools {
+    grid-template-columns: 1fr;
+  }
+
   .live-summary-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
@@ -1617,6 +1651,11 @@ small {
   }
 
   .stats-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .filters-combined-grid,
+  .developer-tools .dev-tools {
     grid-template-columns: 1fr;
   }
 

@@ -1,9 +1,9 @@
 <!doctype html>
-<html lang="uk">
+<html lang="en">
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>Генератор AI-новин для сайту та Telegram-боту</title>
+    <title>AI News Publisher</title>
     <link rel="stylesheet" href="/static/dashboard.css" />
   </head>
   <body class="publisher-page">
@@ -15,9 +15,9 @@
     <header class="topbar">
       <div class="brand">
         <p class="eyebrow">AI News Publisher</p>
-        <h1>Генерація AI-новин для сайту та Telegram-боту</h1>
-        <p class="lead">Стисла панель для запуску, статусу, джерел, генерації, логів і статистики.</p>
-        <div id="panelStatusNote" class="panel-note">Панель готова до оновлення.</div>
+        <h1>AI news for site and Telegram</h1>
+        <p class="lead">Compact dashboard for pipeline runs, sources, filters, posts, and settings.</p>
+        <div id="panelStatusNote" class="panel-note">Ready to update.</div>
       </div>
       <div class="top-actions">
         <a id="telegramChannelLinkTop" class="link-button secondary" href="#" target="_blank" rel="noreferrer" hidden>📢 Open Telegram Channel</a>
@@ -25,9 +25,9 @@
     </header>
 
     <div class="app-shell">
-      <aside class="sidebar" aria-label="Навігація">
+      <aside class="sidebar" aria-label="Navigation">
         <button class="nav-item" type="button" data-open-section="settingsSection">⚙️ Settings</button>
-        <button class="nav-item" type="button" data-open-section="sourcesSection">📰 Open Sources</button>
+        <button class="nav-item" type="button" data-open-section="sourcesSection">📰 Sources</button>
         <button class="nav-item" type="button" data-open-section="filtersSection">🔍 Filters</button>
         <button class="nav-item" type="button" data-open-section="dashboardSection">📊 Dashboard</button>
         <button class="nav-item" type="button" data-open-section="postsSection">📄 Posts</button>
@@ -37,7 +37,7 @@
         <details id="dashboardSection" class="section" open>
           <summary>
             <span>Dashboard</span>
-            <small>pipeline · review · logs · stats</small>
+            <small>pipeline · posts · stats</small>
           </summary>
 
           <div class="section-body">
@@ -46,43 +46,25 @@
                 <div class="card-head">
                   <div>
                     <p class="eyebrow">Pipeline</p>
-                    <h2>Start Pipeline</h2>
+                    <h2>Run Pipeline</h2>
                   </div>
-                  <button id="pipelineStatusBadge" class="status slim" type="button" data-open-section="dashboardSection" data-focus-panel="liveFeed">Waiting</button>
+                  <button id="pipelineStatusBadge" class="status slim" type="button" data-open-section="dashboardSection" data-focus-panel="liveFeed">Ready</button>
                 </div>
-                <p id="pipelineStatusMessage" class="hint">Use the small green button below to start the existing M4 pipeline.</p>
+                <p id="pipelineStatusMessage" class="hint">Run the pipeline to collect updates.</p>
                 <div class="button-row">
-                  <button id="startPipelineBtn" class="workflow-primary" type="button">Start Pipeline</button>
+                  <button id="startPipelineBtn" class="workflow-primary" type="button">Run Pipeline</button>
                 </div>
               </article>
 
               <details id="pipelineLiveFeedCard" class="dashboard-card dashboard-card--live live-accordion" open>
                 <summary class="live-accordion-summary">
                   <div>
-                    <h2>Current Pipeline Status</h2>
+                    <h2>Current pipeline status</h2>
                   </div>
-                  <button id="pipelineLiveBadge" class="status slim" type="button" data-open-section="dashboardSection" data-focus-panel="liveFeed">Waiting</button>
+                  <button id="pipelineLiveBadge" class="status slim" type="button" data-open-section="dashboardSection" data-focus-panel="liveFeed">Ready</button>
                 </summary>
                 <div class="live-accordion-body">
-                  <div class="live-summary-grid">
-                    <div class="live-summary-tile">
-                      <span>Current action</span>
-                      <strong id="pipelineLiveCurrentAction">Waiting for a manual start.</strong>
-                    </div>
-                    <div class="live-summary-tile">
-                      <span>Active stage</span>
-                      <strong id="pipelineLiveActiveStage">Idle</strong>
-                    </div>
-                    <div class="live-summary-tile">
-                      <span>Last action</span>
-                      <strong id="pipelineLiveLastAction">No actions yet.</strong>
-                    </div>
-                    <div class="live-summary-tile">
-                      <span>Errors</span>
-                      <strong id="pipelineLiveErrors">No errors.</strong>
-                    </div>
-                  </div>
-                  <div id="pipelineLiveSummary" class="live-summary">Start Pipeline to see collection updates. AI generation stays manual through Generate Post.</div>
+                  <div id="pipelineLiveSummary" class="live-summary">Run the pipeline to see live updates.</div>
                   <div id="pipelineLiveFeed" class="live-feed"></div>
                 </div>
               </details>
@@ -90,17 +72,17 @@
               <article id="newsQueueCard" class="dashboard-card dashboard-card--news dashboard-card--wide">
                 <div class="card-head">
                   <div>
-                    <p class="eyebrow">Errors & Recovery</p>
-                    <h2>Failed Tasks</h2>
+                    <p class="eyebrow">Issues</p>
+                    <h2>Issue log</h2>
                   </div>
-                  <button id="newsQueueBadge" class="status slim" type="button" data-open-section="sourcesSection">Open Sources</button>
+                  <button id="newsQueueBadge" class="status slim" type="button" data-open-section="sourcesSection">Sources</button>
                 </div>
                 <div class="table-wrap">
                   <table class="data-table">
                     <thead>
                       <tr>
                         <th>Task</th>
-                        <th>Error</th>
+                        <th>Issue</th>
                         <th>Date</th>
                         <th>Action</th>
                       </tr>
@@ -113,15 +95,15 @@
               <article class="dashboard-card dashboard-card--activity dashboard-card--wide">
                 <div class="card-head">
                   <div>
-                    <p class="eyebrow">Generated Posts</p>
-                    <h2>Review, publish, and edit</h2>
+                    <p class="eyebrow">Posts</p>
+                    <h2>Review and publish</h2>
                   </div>
                 </div>
                 <div class="filter-row">
                   <button class="status slim post-filter is-active" type="button" data-post-filter="generated">Generated</button>
                   <button class="status slim post-filter" type="button" data-post-filter="published">Published</button>
                   <button class="status slim post-filter" type="button" data-post-filter="failed">Failed</button>
-                  <button class="status slim post-filter" type="button" data-post-filter="">Show All</button>
+                  <button class="status slim post-filter" type="button" data-post-filter="">All</button>
                 </div>
                 <div class="table-wrap">
                   <table class="data-table data-table--clickable">
@@ -142,7 +124,7 @@
                 <summary class="live-accordion-summary">
                   <div>
                     <p class="eyebrow">Logs</p>
-                    <h2>Logs & Recovery</h2>
+                    <h2>Activity log</h2>
                   </div>
                   <div class="log-filters" role="tablist" aria-label="Log filters">
                     <button class="status slim log-filter is-active" type="button" data-log-filter="all">All</button>
@@ -152,13 +134,8 @@
                   </div>
                 </summary>
                 <div class="live-accordion-body">
-                  <div id="errorLogsSummary" class="live-summary">No errors recorded yet.</div>
+                  <div id="errorLogsSummary" class="live-summary">No log entries yet.</div>
                   <div id="errorLogsList" class="live-feed"></div>
-                  <div class="action-guide">
-                    <div><strong>OpenAI issues</strong><span>Check the OpenAI key, model, and network connection in Settings.</span></div>
-                    <div><strong>Telegram issues</strong><span>Check Bot Token, API ID, API Hash, and channel settings before publishing again.</span></div>
-                    <div><strong>Source issues</strong><span>Open Sources, verify the feed or channel URL, then run Start Pipeline again.</span></div>
-                  </div>
                 </div>
               </details>
 
@@ -169,27 +146,27 @@
                   <button class="stat-tile" type="button" data-open-section="sourcesSection">
                     <span>Sources</span>
                     <strong id="statSources">0</strong>
-                    <small>Open Sources</small>
+                    <small>Open</small>
                   </button>
                   <button class="stat-tile" type="button" data-open-section="dashboardSection" data-focus-panel="newsQueue">
-                    <span>Articles Found</span>
+                    <span>News</span>
                     <strong id="statArticlesFound">0</strong>
-                    <small>Collected items</small>
+                    <small>Collected</small>
                   </button>
                   <button class="stat-tile" type="button" data-open-section="postsSection" data-post-filter="generated">
-                    <span>Posts Generated</span>
+                    <span>Drafts</span>
                     <strong id="statPostsGenerated">0</strong>
-                    <small>Drafts ready</small>
+                    <small>Ready</small>
                   </button>
                   <button class="stat-tile" type="button" data-open-section="postsSection" data-post-filter="published">
-                    <span>Posts Published</span>
+                    <span>Sent</span>
                     <strong id="statPostsPublished">0</strong>
-                    <small>Telegram sent</small>
+                    <small>Telegram</small>
                   </button>
                   <button class="stat-tile" type="button" data-open-section="postsSection" data-post-filter="failed">
-                    <span>Failed Tasks</span>
+                    <span>Issues</span>
                     <strong id="statFailedTasks">0</strong>
-                    <small>Needs attention</small>
+                    <small>Needs review</small>
                   </button>
                 </div>
               </article>
@@ -200,42 +177,35 @@
         <details id="sourcesSection" class="section">
           <summary>
             <span>New Source</span>
-            <small>manual · templates · search results</small>
+            <small>manual · templates</small>
           </summary>
 
           <div class="section-body">
             <div class="section-toolbar section-toolbar--sources">
               <div class="section-copy">
-                <p class="lead">Add a source manually or pick a ready template, then assign a theme if you want the source to feed theme-scoped keyword filters.</p>
-                <p class="source-limits">Manual source entry · RSS templates · Telegram channels</p>
+                <p class="lead">Add a source manually or pick a ready template.</p>
+                <p class="source-limits">Manual entry · RSS templates · Telegram channels</p>
               </div>
               <div class="source-hero-actions">
-                <button id="openSourceModalBtn" class="workflow-primary" type="button">Add source (manual)</button>
+                <button id="openSourceModalBtn" class="workflow-primary" type="button">Add source</button>
                 <button id="openReadyTemplatesBtn" class="source-state-button workflow-primary" type="button">
                   <span class="source-state-indicator" aria-hidden="true"></span>
                   <span class="source-state-copy">
-                    <strong>Ready Templates</strong>
-                    <small id="readyTemplatesCount">0 available</small>
+                    <strong>Ready templates</strong>
+                    <small id="readyTemplatesCount">0 ready</small>
                   </span>
                 </button>
               </div>
             </div>
 
             <details class="subdetails source-library" open>
-              <summary>Ready templates and search results</summary>
+              <summary>Ready templates</summary>
               <div class="subbody">
-                <div class="template-toolbar template-toolbar--sources">
-                  <input id="sourceTemplateSearch" placeholder="Search templates or channels" autocomplete="off" />
-                </div>
-                <div class="source-search-status-row">
-                  <div id="sourceTemplateSearchStatus" class="status slim">Search for templates to see matching results.</div>
-                  <button id="runSourceTemplateSearchBtn" class="workflow-primary" type="button">Run Search</button>
-                </div>
                 <div class="source-accordion-stack">
                   <details class="source-accordion">
                     <summary>
                       <span>RSS</span>
-                      <small>Ready templates and matching results</small>
+                      <small>Ready templates and matches</small>
                     </summary>
                     <div class="source-accordion-body">
                       <div id="rssVisibleSuggestionsList" class="list compact"></div>
@@ -244,7 +214,7 @@
                   <details class="source-accordion">
                     <summary>
                       <span>Telegram</span>
-                      <small>Ready templates and matching results</small>
+                      <small>Ready templates and matches</small>
                     </summary>
                     <div class="source-accordion-body">
                       <div id="telegramVisibleSuggestionsList" class="list compact"></div>
@@ -258,7 +228,7 @@
               <div class="panel-head">
                 <div>
                   <p class="eyebrow">Source management</p>
-                  <h2>Managed Sources</h2>
+                  <h2>Sources</h2>
                 </div>
               </div>
               <div class="table-wrap">
@@ -267,7 +237,7 @@
                     <tr>
                       <th>Name</th>
                       <th>Type</th>
-                      <th>Theme</th>
+                      <th>Topic</th>
                       <th>Status</th>
                       <th>Actions</th>
                     </tr>
@@ -282,11 +252,11 @@
 
             <div class="source-footer">
               <div class="source-footer-state">
-                <div id="sourcesStatus" class="status status-button source-readiness-status" role="status" aria-live="polite">Source is not ready yet</div>
-                <div id="sourcesCount" class="status status-button slim" role="status" aria-live="polite">Sources added: 0</div>
+                <div id="sourcesStatus" class="status status-button source-readiness-status" role="status" aria-live="polite">Source not ready</div>
+                <div id="sourcesCount" class="status status-button slim" role="status" aria-live="polite">Sources: 0</div>
               </div>
               <div class="source-footer-actions">
-                <button id="startPipelineFromSourceBtn" class="workflow-primary" type="button">Start Pipeline</button>
+                <button id="startPipelineFromSourceBtn" class="workflow-primary" type="button">Run Pipeline</button>
                 <button id="manageSourcesBtn" class="secondary" type="button">Manage Sources</button>
               </div>
             </div>
@@ -296,71 +266,70 @@
         <details id="filtersSection" class="section">
           <summary>
             <span>Filters</span>
-            <small>keywords · content rules</small>
+            <small>topics · keywords</small>
           </summary>
 
           <div class="section-body">
             <div class="section-toolbar section-toolbar--filters">
               <div class="section-copy">
-                <p class="lead">Build filters from broad themes first, then narrow them with keywords. Global keywords still work alongside theme-scoped keywords.</p>
-                <p class="source-limits">Theme first · keyword second · same backend filter set</p>
-              </div>
-              <div class="filters-hero-chips">
-                <span class="badge badge--ok">Add theme</span>
-                <span class="badge badge--wait">Add keyword</span>
+                <p class="lead">Add a topic first, then add keywords.</p>
+                <p class="source-limits">Global keywords still work alongside topic-scoped keywords.</p>
               </div>
             </div>
 
             <div class="filters-grid">
-              <article class="panel">
-                <p class="eyebrow">Theme</p>
-                <h2>Add theme</h2>
-                <form id="themeForm" class="stack">
-                  <input id="themeInput" name="name" placeholder="AI, Startups, Health" required autocomplete="off" />
-                  <button id="addThemeBtn" class="workflow-primary" type="submit">Add theme</button>
-                </form>
-                <div class="table-wrap">
-                  <table class="data-table">
-                    <thead>
-                      <tr>
-                        <th>Theme</th>
-                        <th>Sources</th>
-                        <th>Keywords</th>
-                      </tr>
-                    </thead>
-                    <tbody id="themesTableBody"></tbody>
-                  </table>
-                </div>
-              </article>
+              <article class="panel panel--wide">
+                <p class="eyebrow">Topics and keywords</p>
+                <div class="filters-combined-grid">
+                  <section class="filters-combined-section">
+                    <h2>Add topic</h2>
+                    <form id="themeForm" class="stack">
+                      <input id="themeInput" name="name" placeholder="AI, Startups, Health" required autocomplete="off" />
+                      <button id="addThemeBtn" class="workflow-primary" type="submit">Add topic</button>
+                    </form>
+                    <div class="table-wrap">
+                      <table class="data-table">
+                        <thead>
+                          <tr>
+                            <th>Topic</th>
+                            <th>Sources</th>
+                            <th>Keywords</th>
+                          </tr>
+                        </thead>
+                        <tbody id="themesTableBody"></tbody>
+                      </table>
+                    </div>
+                  </section>
 
-              <article class="panel">
-                <p class="eyebrow">Keyword</p>
-                <h2>Add keyword</h2>
-                <form id="keywordForm" class="stack">
-                  <input id="keywordInput" name="word" placeholder="AI, OpenAI, LLM" required autocomplete="off" />
-                  <label class="field">
-                    <span>Theme</span>
-                    <select id="keywordThemeSelect" name="topic_id"></select>
-                  </label>
-                  <button id="addKeywordBtn" class="workflow-primary" type="submit">Add Keyword</button>
-                </form>
-                <div class="table-wrap">
-                  <table class="data-table">
-                    <thead>
-                      <tr>
-                        <th>Keyword</th>
-                        <th>Theme</th>
-                        <th>Action</th>
-                      </tr>
-                    </thead>
-                    <tbody id="keywordsTableBody"></tbody>
-                  </table>
+                  <section class="filters-combined-section">
+                    <h2>Add keyword</h2>
+                    <form id="keywordForm" class="stack">
+                      <input id="keywordInput" name="word" placeholder="AI, OpenAI, LLM" required autocomplete="off" />
+                      <label class="field">
+                        <span>Topic</span>
+                        <select id="keywordThemeSelect" name="topic_id"></select>
+                      </label>
+                      <button id="addKeywordBtn" class="workflow-primary" type="submit">Add keyword</button>
+                    </form>
+                    <div class="table-wrap">
+                      <table class="data-table">
+                        <thead>
+                          <tr>
+                            <th>Keyword</th>
+                            <th>Topic</th>
+                            <th>Action</th>
+                          </tr>
+                        </thead>
+                        <tbody id="keywordsTableBody"></tbody>
+                      </table>
+                    </div>
+                  </section>
                 </div>
               </article>
 
               <article class="panel panel--wide">
-                <p class="eyebrow">Content Filters</p>
-                <h2>Content Filters</h2>
+                <p class="eyebrow">Content rules</p>
+                <h2>Content filters</h2>
                 <label class="field">
                   <span>Language</span>
                   <select id="languageSelect">
@@ -372,13 +341,13 @@
                 </label>
                 <label class="toggle-row">
                   <input id="duplicateDetectionToggle" type="checkbox" />
-                  <span>Duplicate Detection</span>
+                  <span>Duplicate detection</span>
                 </label>
                 <label class="toggle-row">
                   <input id="sourceFilteringToggle" type="checkbox" />
-                  <span>Source Filtering</span>
+                  <span>Source filtering</span>
                 </label>
-                <div class="status slim">These preferences are saved locally in this browser and reflected in the guided workflow.</div>
+                <div class="status slim">Saved locally in this browser and used in the guided flow.</div>
               </article>
             </div>
           </div>
@@ -386,21 +355,21 @@
 
         <details id="postsSection" class="section">
           <summary>
-            <span>Generated Posts</span>
+            <span>Posts</span>
             <small>drafts · review · publish</small>
           </summary>
 
           <div class="section-body">
             <div class="section-toolbar">
               <div class="section-copy">
-                <p class="lead">Click a row to open the original news and the generated text. Regenerate, publish, or delete from one modal.</p>
-                <p class="hint">Generate creates the first AI draft. Regenerate replaces the draft with a fresh AI version after you review it.</p>
+                <p class="lead">Open a row to review the original news and the generated text.</p>
+                <p class="hint">Regenerate replaces the draft with a fresh AI version after review.</p>
               </div>
               <div class="filter-row">
                 <button class="status slim post-filter is-active" type="button" data-post-filter="generated">Generated</button>
                 <button class="status slim post-filter" type="button" data-post-filter="published">Published</button>
                 <button class="status slim post-filter" type="button" data-post-filter="failed">Failed</button>
-                <button class="status slim post-filter" type="button" data-post-filter="">Show All</button>
+                <button class="status slim post-filter" type="button" data-post-filter="">All</button>
               </div>
             </div>
 
@@ -434,8 +403,8 @@
                 <p class="eyebrow">Access</p>
                 <h2>Admin access</h2>
                 <input id="apiKey" type="password" placeholder="ADMIN_API_KEY" autocomplete="off" />
-                <div id="settingsAdminKeyStatus" class="status">Access code not checked yet</div>
-                <p class="hint">Used to unlock private dashboard data in this browser session.</p>
+                <div id="settingsAdminKeyStatus" class="status">Access code not checked</div>
+                <p class="hint">Unlocks private dashboard data in this browser session.</p>
               </article>
 
               <article class="panel">
@@ -443,8 +412,8 @@
                 <h2>OpenAI</h2>
                 <input id="openaiApiKeyInput" type="password" placeholder="OpenAI API Key" autocomplete="off" />
                 <div id="openaiStatus" class="status">Loading...</div>
-                <p class="hint">This is a local draft for the browser. The connection test uses the live server-side key.</p>
-                <button id="verifyOpenaiBtn" class="secondary" type="button">Test Connection</button>
+                <p class="hint">This draft stays in the browser. The test uses the live server key.</p>
+                <button id="verifyOpenaiBtn" class="secondary" type="button">Test connection</button>
                 <pre id="openaiCheckResult" class="result-box">OpenAI test will show the live server response.</pre>
               </article>
 
@@ -455,8 +424,8 @@
                 <input id="telegramApiHashInput" type="password" placeholder="API HASH" autocomplete="off" />
                 <input id="telegramChannelInput" type="text" placeholder="Channel Username" autocomplete="off" />
                 <div id="settingsTelegramConnectionStatus" class="status">Telegram not checked yet</div>
-                <div id="settingsTelegramConnectionReason" class="status slim">Telegram connection scenario will explain what is missing.</div>
-                <p class="hint">These fields are saved as a local draft. Telegram test still checks the live server connection.</p>
+                <div id="settingsTelegramConnectionReason" class="status slim">Telegram setup status will show what is missing.</div>
+                <p class="hint">These fields are saved locally. The test still uses the live server connection.</p>
                 <button id="checkTelegramBtn" class="secondary" type="button">Test Telegram</button>
                 <pre id="telegramCheckResult" class="result-box">Telegram test will show the live server response.</pre>
               </article>
@@ -466,40 +435,39 @@
                 <h2>Scheduler</h2>
                 <div class="stack">
                   <label class="field">
-                    <span>Parsing Interval</span>
+                    <span>Parsing interval</span>
                     <input id="parsingIntervalInput" type="text" placeholder="15 min" autocomplete="off" />
                   </label>
                   <label class="field">
-                    <span>AI Generation Interval</span>
+                    <span>AI generation interval</span>
                     <input id="aiGenerationIntervalInput" type="text" placeholder="10 min" autocomplete="off" />
                   </label>
                   <label class="field">
-                    <span>Publishing Interval</span>
+                    <span>Publishing interval</span>
                     <input id="publishingIntervalInput" type="text" placeholder="30 min" autocomplete="off" />
                   </label>
                   <label class="toggle-row">
                     <input id="autoPublishToggle" type="checkbox" />
                     <span>Auto-publish approved posts</span>
                   </label>
-                  <p class="hint">Intervals are saved locally until the backend exposes scheduler persistence.</p>
+                  <p class="hint">Intervals stay local until scheduler persistence is available.</p>
                 </div>
-                <div id="deliveryStatus" class="status">Delivery status is unknown.</div>
-                <div id="settingsDeliveryStatus" class="status slim">Open Settings to verify Telegram delivery.</div>
+                <div id="deliveryStatus" class="status">Delivery status unknown.</div>
+                <div id="settingsDeliveryStatus" class="status slim">Open Settings to verify delivery.</div>
               </article>
             </div>
 
             <div class="settings-actions">
-              <button id="saveSettingsBtn" class="workflow-primary" type="button">Save Settings</button>
+              <button id="saveSettingsBtn" class="workflow-primary" type="button">Save settings</button>
             </div>
 
             <details class="subdetails developer-tools">
-              <summary>Developer Tools</summary>
+              <summary>Developer tools</summary>
               <div class="subbody">
                 <div class="dev-tools">
-                  <a class="link-button secondary" href="/docs" target="_blank" rel="noreferrer">Swagger</a>
+                  <a class="link-button secondary" href="/docs" target="_blank" rel="noreferrer">Docs</a>
                   <a class="link-button secondary" href="/api/public-status" target="_blank" rel="noreferrer">Public status</a>
-                  <a class="link-button secondary" href="http://localhost:5555/" target="_blank" rel="noreferrer">Celery</a>
-                  <a class="link-button secondary" href="http://localhost:5556/" target="_blank" rel="noreferrer">Flower</a>
+                  <a class="link-button secondary" href="http://localhost:5555/" target="_blank" rel="noreferrer">Celery / Flower</a>
                   <a class="link-button secondary" href="http://localhost:8081/" target="_blank" rel="noreferrer">Redis Commander</a>
                   <a class="link-button secondary" href="http://localhost:8082/" target="_blank" rel="noreferrer">Adminer</a>
                 </div>
@@ -515,12 +483,12 @@
         <div class="modal-head">
           <div>
             <p class="eyebrow">New Source</p>
-            <h2 id="sourceModalTitle">Add source (manual)</h2>
+            <h2 id="sourceModalTitle">Add source</h2>
           </div>
           <button id="closeSourceModalBtn" type="button" class="secondary">Close</button>
         </div>
 
-        <div id="sourceEditBanner" class="status slim source-edit-banner">Fill the editable fields below, then save your changes.</div>
+        <div id="sourceEditBanner" class="status slim source-edit-banner">Fill the fields below, then save.</div>
 
         <div class="stack source-form-stack">
           <label class="field">
@@ -532,7 +500,7 @@
           </label>
 
           <label class="field">
-            <span>Theme</span>
+            <span>Topic</span>
             <select id="sourceThemeSelect" name="topic_id"></select>
           </label>
 
@@ -542,11 +510,11 @@
           </label>
 
           <label class="field">
-            <span>URL or Telegram username</span>
+            <span>Source URL or Telegram username</span>
             <input id="sourceUrl" name="url" placeholder="https://openai.com/news or @openai" required autocomplete="off" />
           </label>
 
-          <div id="sourceUrlHint" class="hint">For RSS, use the full feed URL. For Telegram, use @username or a t.me link.</div>
+          <div id="sourceUrlHint" class="hint">Use the full feed URL for RSS or @username for Telegram.</div>
 
           <label class="toggle-row">
             <input id="sourceEnabled" name="enabled" type="checkbox" checked />
@@ -555,7 +523,7 @@
 
           <div class="source-form-actions">
             <button id="sourceSubmitBtn" class="workflow-primary" type="submit">Save source</button>
-            <div id="sourceSaveStatus" class="status slim">Ready to save the source.</div>
+            <div id="sourceSaveStatus" class="status slim">Ready to save.</div>
           </div>
         </div>
       </form>
@@ -565,7 +533,7 @@
           <div class="modal-shell modal-shell--wide">
         <div class="modal-head">
           <div>
-            <p class="eyebrow">Generated Posts</p>
+            <p class="eyebrow">Posts</p>
             <h2 id="postModalTitle">Post details</h2>
           </div>
           <div class="button-row">
@@ -594,7 +562,7 @@
         </div>
 
         <div class="button-row post-modal-actions">
-          <button id="regeneratePostBtn" class="secondary" type="button">Regenerate Post</button>
+          <button id="regeneratePostBtn" class="secondary" type="button">Regenerate</button>
           <button id="publishPostBtn" class="workflow-primary" type="button">Send to Telegram</button>
           <button id="deletePostBtn" class="danger" type="button">Delete</button>
         </div>
