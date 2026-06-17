@@ -93,7 +93,7 @@ class MaterialImage(Base):
     created_at: datetime = Timestamp
 ```
 
-### 2. Updated `Post` Model (rename to `Material`?)
+### 2. Updated `Post` Model
 **Add fields:**
 ```python
 image_id: str = ForeignKey("material_images.id")
@@ -104,8 +104,6 @@ published_to_telegram_at: datetime = Exact publication timestamp
 edit_count: int = How many times material was edited
 material_status: PostStatus = Enum (NEW, GENERATED, EDITING, READY, PUBLISHED, FAILED)
 ```
-
-Keep backward compatibility by adding `material_status` as new field in `Post` model.
 
 ### 3. New `PublicationHistory` Model
 ```python
@@ -221,205 +219,30 @@ GET /api/pipeline/errors
 
 ---
 
-## Frontend Component Structure
+## Frontend Component Structure - REVISED HTML
 
-### New HTML Structure
+### Key Changes to Current Structure:
 
-```html
-<header class="topbar">
-  - Logo/Title
-  - [Start Pipeline] button
-  - [Refresh] button
-  - Status indicator
-</header>
+**1. Remove these sections (move to collapsed config):**
+   - Topics & Sources (config section)
+   - Telegram Delivery settings
+   - AI Test (config section)
 
-<main class="dashboard dashboard--new-layout">
-  
-  <!-- 1. Current Status Block -->
-  <section class="status-block">
-    <div class="status-display">
-      <div class="status-badge" data-status="...">
-        Current Status Icon + Text
-      </div>
-      <button class="show-details">Show Details</button>
-    </div>
-    
-    <!-- Modal/Expandable -->
-    <div class="status-details" hidden>
-      - Detailed logs
-      - Task info
-      - Progress
-    </div>
-  </section>
-  
-  <!-- 2. Errors & Recovery Block (conditional) -->
-  <section class="error-recovery-block" id="errorBlock" hidden>
-    <div class="error-summary">
-      <h3>⚠️ Error occurred</h3>
-      <p>Error details</p>
-    </div>
-    <div class="recovery-actions">
-      <button class="retry">Retry</button>
-      <button class="skip">Skip</button>
-      <button class="view-logs">View Logs</button>
-    </div>
-  </section>
-  
-  <!-- 3. Ready Materials Block -->
-  <section class="materials-block">
-    <div class="materials-header">
-      <h2>Ready Materials</h2>
-      <div class="materials-toolbar">
-        <input placeholder="Search..." class="search-input">
-        <select class="status-filter">
-          <option value="">All statuses</option>
-          <option value="new">New</option>
-          <option value="generated">Generated</option>
-          <option value="editing">Editing</option>
-          <option value="ready">Ready</option>
-          <option value="published">Published</option>
-          <option value="failed">Failed</option>
-        </select>
-        <button class="refresh-materials">Refresh</button>
-      </div>
-    </div>
-    
-    <div class="materials-list">
-      <!-- Material Card Template -->
-      <article class="material-card" data-material-id="...">
-        <div class="material-card-header">
-          <div class="material-info">
-            <h3 class="material-title">News Title</h3>
-            <p class="material-meta">
-              <span class="source">Source Name</span>
-              <span class="date">2 hours ago</span>
-            </p>
-          </div>
-          <div class="material-status-badge" data-status="...">
-            NEW / GENERATED / EDITING / READY / PUBLISHED / FAILED
-          </div>
-        </div>
-        
-        <div class="material-card-body">
-          <div class="material-image">
-            <img src="..." alt="Material image" />
-            <small class="image-source">Source: RSS</small>
-          </div>
-          
-          <div class="material-text">
-            <p>Generated text (truncated to 300 chars)...</p>
-          </div>
-        </div>
-        
-        <div class="material-card-footer">
-          <!-- Publication Info (if published) -->
-          <div class="publication-info" hidden>
-            <a href="..." target="_blank" class="telegram-link">
-              📱 Open in Telegram
-            </a>
-            <span class="channel-name">@channel_name</span>
-            <span class="publication-time">Published 2 hours ago</span>
-          </div>
-          
-          <!-- Action Buttons -->
-          <div class="material-actions">
-            <button class="action edit-btn">Edit</button>
-            <button class="action return-to-editing-btn" hidden>Return to Editing</button>
-            <button class="action publish-again-btn" hidden>Publish Again</button>
-            <button class="action publish-btn" hidden>Publish</button>
-            <button class="action view-logs-btn">View Logs</button>
-          </div>
-        </div>
-      </article>
-      
-      <!-- Empty State -->
-      <div class="empty-state" hidden>
-        <p>No materials found. Start the pipeline or add news manually.</p>
-      </div>
-    </div>
-  </section>
-  
-  <!-- 4. Telegram Publications Block -->
-  <section class="publications-block">
-    <h2>Recent Telegram Publications</h2>
-    <div class="publications-list">
-      <!-- Publication Record Template -->
-      <div class="publication-record">
-        <div class="publication-info">
-          <p class="publication-title">Material Title</p>
-          <p class="publication-meta">
-            <span class="channel">@channel_name</span>
-            <span class="time">2 hours ago</span>
-          </p>
-        </div>
-        <a href="..." target="_blank" class="telegram-link">
-          📱 Open Message
-        </a>
-      </div>
-    </div>
-  </section>
-  
-  <!-- 5. Logs Block -->
-  <section class="logs-block">
-    <h2>Logs & Errors</h2>
-    <div class="logs-toolbar">
-      <select class="log-level-filter">
-        <option value="">All</option>
-        <option value="error">Errors</option>
-        <option value="warning">Warnings</option>
-        <option value="info">Info</option>
-      </select>
-      <input type="number" class="log-limit" value="30" min="10" max="200">
-      <button class="refresh-logs">Refresh</button>
-    </div>
-    <div class="logs-list">
-      <pre id="logsContent"></pre>
-    </div>
-  </section>
-  
-  <!-- 6. Statistics Block -->
-  <section class="statistics-block">
-    <h2>Pipeline Statistics</h2>
-    <div class="stats-grid">
-      <div class="stat-card">
-        <div class="stat-label">Sources</div>
-        <div class="stat-value" id="sourcesCount">0</div>
-      </div>
-      <div class="stat-card">
-        <div class="stat-label">Articles Found</div>
-        <div class="stat-value" id="articlesCount">0</div>
-      </div>
-      <div class="stat-card">
-        <div class="stat-label">Posts Generated</div>
-        <div class="stat-value" id="generatedCount">0</div>
-      </div>
-      <div class="stat-card">
-        <div class="stat-label">Posts Published</div>
-        <div class="stat-value" id="publishedCount">0</div>
-      </div>
-      <div class="stat-card">
-        <div class="stat-label">Failed Tasks</div>
-        <div class="stat-value" id="failedCount">0</div>
-      </div>
-    </div>
-  </section>
-  
-  <!-- 7. Configuration Block (collapsed) -->
-  <details class="configuration-block">
-    <summary>⚙️ Configuration & Developer Tools</summary>
-    <div class="configuration-content">
-      <!-- Existing config sections moved here -->
-      - Admin API Key
-      - OpenAI Configuration
-      - Telegram Configuration
-      - Topics & Sources Management
-      - Task Monitoring (Celery/Redis status)
-    </div>
-  </details>
-</main>
-```
+**2. Add new top-level sections:**
+   - Current Status (prominent, above fold)
+   - Errors & Recovery (conditional, below status)
+   - Ready Materials (unified, replaces News + Posts + Published)
+   - Telegram Publications (recent successful posts)
+   - Logs & Errors (scrollable)
+   - Statistics (summary cards)
 
-### CSS Changes Required
+**3. Keep but relocate:**
+   - Configuration (collapse by default)
+   - Pipeline controls (in Current Status)
+
+---
+
+## CSS Changes Required
 
 1. **New Layout**
    - Remove tab-based layout
@@ -442,13 +265,9 @@ GET /api/pipeline/errors
    - PUBLISHED: Checkmark Green (#8BC34A)
    - FAILED: Red (#F44336)
 
-4. **Typography**
-   - Material title: 18px, bold
-   - Meta info: 12px, gray
-   - Button text: 14px
-   - Status text: 12px, bold
+---
 
-### JavaScript Changes Required
+## JavaScript Changes Required
 
 1. **Refactor State Management**
    - Move from section-based to material-based state
@@ -471,12 +290,6 @@ GET /api/pipeline/errors
    - Add calls to new `/api/materials/{id}/...` endpoints
    - Update polling to use `/api/pipeline/current-status`
    - Add error recovery display
-
-4. **Event Handlers**
-   - Material card action buttons
-   - Material search/filter
-   - Status block click to expand
-   - Telegram link clicks
 
 ---
 
