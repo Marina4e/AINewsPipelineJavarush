@@ -2,7 +2,7 @@ from app.models import SourceType
 
 
 # Каталог показується у frontend як швидкий старт для RSS і Telegram-джерел.
-# Telegram-приклади нижче - реальні публічні канали для демо та перевірки UX.
+# Telegram-приклади нижче обмежені набором AI/tech-джерел, який використовується у dashboard.
 SOURCE_SUGGESTIONS = [
     {
         "type": SourceType.site,
@@ -41,44 +41,44 @@ SOURCE_SUGGESTIONS = [
     },
     {
         "type": SourceType.tg,
-        "name": "Telegram News",
-        "url": "https://t.me/telegram",
+        "name": "AI Post",
+        "url": "https://t.me/aipost",
+        "topic_slug": "ai",
+        "description": "Artificial intelligence news, research breakthroughs, and AI industry updates.",
+    },
+    {
+        "type": SourceType.tg,
+        "name": "Hi, AI • Tech News",
+        "url": "https://t.me/hiaimediaen",
+        "topic_slug": "ai",
+        "description": "Global AI, OpenAI, Anthropic, Google AI, and technology news.",
+    },
+    {
+        "type": SourceType.tg,
+        "name": "TechCrunch",
+        "url": "https://t.me/techcrunchcom",
         "topic_slug": "technology",
-        "description": "Офіційний канал Telegram з новинами платформи.",
+        "description": "Startup ecosystem, venture capital, AI, and technology news.",
     },
     {
         "type": SourceType.tg,
-        "name": "BotNews",
-        "url": "https://t.me/BotNews",
+        "name": "Tech, Science & Innovation",
+        "url": "https://t.me/tech_science_innovation",
         "topic_slug": "technology",
-        "description": "Офіційні новини Telegram Bot API та бот-платформи.",
+        "description": "Science, AI, biotech, space, and future technology news.",
     },
     {
         "type": SourceType.tg,
-        "name": "Telegram Tips",
-        "url": "https://t.me/TelegramTips",
+        "name": "Artificial Intelligence | AI",
+        "url": "https://t.me/ai_artificial_inteligence",
+        "topic_slug": "ai",
+        "description": "AI news, tools, funding, and product launches.",
+    },
+    {
+        "type": SourceType.tg,
+        "name": "Hacker News",
+        "url": "https://t.me/hackernews",
         "topic_slug": "technology",
-        "description": "Поради та нові функції Telegram.",
-    },
-    {
-        "type": SourceType.tg,
-        "name": "BBC News",
-        "url": "https://t.me/bbc_nws",
-        "topic_slug": "news",
-        "description": "Світові новини та міжнародні події.",
-    },
-    {
-        "type": SourceType.tg,
-        "name": "NHK World",
-        "url": "https://t.me/nhkworld",
-        "topic_slug": "news",
-        "description": "Міжнародні новини та аналітика.",
-    },
-    {
-        "type": SourceType.tg,
-        "name": "Ukraine NOW",
-        "url": "https://t.me/UkraineNow",
-        "topic_slug": "news",
-        "description": "Українські новини та офіційні повідомлення.",
+        "description": "Programming, startups, open source, and engineering discussions.",
     },
 ]

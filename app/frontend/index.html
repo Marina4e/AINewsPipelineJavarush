@@ -385,32 +385,20 @@
         <details id="postsSection" class="section">
           <summary>
             <span>Generated Posts</span>
-            <small>drafts · review · publish</small>
+            <small>generated · returned · publish</small>
           </summary>
 
           <div class="section-body">
             <div class="section-toolbar">
               <div class="section-copy">
-                <p class="lead">Click a row to open the original news and the generated text. Regenerate, publish, or delete from one modal.</p>
-                <p class="hint">Generate creates the first AI draft. Regenerate replaces the draft with a fresh AI version after you review it.</p>
+                <p class="lead">Here I keep only generated posts and posts returned from Telegram for rework.</p>
+                <p class="hint">Use Edit to review the full draft and Send to Telegram to publish the current version.</p>
               </div>
               <div id="postsSummary" class="status-grid"></div>
             </div>
 
             <article class="panel">
-              <div class="table-wrap">
-                <table class="data-table data-table--clickable">
-                  <thead>
-                    <tr>
-                      <th>Title</th>
-                      <th>Source</th>
-                      <th>Status</th>
-                      <th>Created At</th>
-                    </tr>
-                  </thead>
-                  <tbody id="postsTableBody"></tbody>
-                </table>
-              </div>
+              <div id="postsList" class="posts-list"></div>
             </article>
           </div>
         </details>

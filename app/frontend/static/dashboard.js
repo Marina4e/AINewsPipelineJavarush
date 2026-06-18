@@ -32,34 +32,34 @@ const SOURCE_EXAMPLE_FALLBACKS = {
   ],
   tg: [
     {
+      name: "AI Post",
+      url: "https://t.me/aipost",
+      description: "Artificial intelligence news, research breakthroughs, and AI industry updates.",
+    },
+    {
+      name: "Hi, AI • Tech News",
+      url: "https://t.me/hiaimediaen",
+      description: "Global AI, OpenAI, Anthropic, Google AI, and technology news.",
+    },
+    {
       name: "TechCrunch",
       url: "https://t.me/techcrunchcom",
-      description: "Startup, AI, and technology news.",
+      description: "Startup ecosystem, venture capital, AI, and technology news.",
     },
     {
-      name: "MIT Technology Review",
-      url: "https://t.me/technologyreview",
-      description: "AI research and emerging technologies.",
+      name: "Tech, Science & Innovation",
+      url: "https://t.me/tech_science_innovation",
+      description: "Science, AI, biotech, space, and future technology news.",
     },
     {
-      name: "The Verge",
-      url: "https://t.me/theverge",
-      description: "Consumer technology and AI news.",
+      name: "Artificial Intelligence | AI",
+      url: "https://t.me/ai_artificial_inteligence",
+      description: "AI news, tools, funding, and product launches.",
     },
     {
       name: "Hacker News",
       url: "https://t.me/hackernews",
-      description: "Programming, startups, and engineering discussions.",
-    },
-    {
-      name: "AI Breakfast",
-      url: "https://t.me/aibreakfast",
-      description: "Artificial intelligence news and analysis.",
-    },
-    {
-      name: "OpenAI News",
-      url: "https://t.me/OpenAINewsroom",
-      description: "OpenAI ecosystem and generative AI updates.",
+      description: "Programming, startups, open source, and engineering discussions.",
     },
   ],
 };
@@ -1148,44 +1148,42 @@ function renderFilters() {
 
 function postSummaryCounts(items) {
   const counts = {
-    new: items.filter((post) => post.status === "new").length,
     generated: items.filter((post) => post.status === "generated" || post.status === "pending_approval").length,
-    published: items.filter((post) => post.status === "published").length,
-    failed: items.filter((post) => post.status === "failed" || post.status === "rejected" || post.error).length,
+    returned: items.filter((post) => post.status === "rejected").length,
   };
   return counts;
 }
 
-function renderPostRow(post) {
+function renderPostCard(post) {
   const info = postStatusInfo(post.status);
   const headline = post.news?.title || `Post ${post.id.slice(0, 8)}`;
   const source = post.news?.source || "—";
   const createdAt = post.created_at || post.updated_at;
+  const preview = post.generated_text || post.news?.summary || "No preview available.";
   return `
-    <tr data-open-post-id="${escapeHtml(post.id)}">
-      <td data-label="Title">
+    <article class="post-card">
+      <div class="post-card-head">
         <div class="post-row-title">
           <div class="row-title">${escapeHtml(headline)}</div>
-          <div class="row-subtle">${escapeHtml(post.news?.summary || post.generated_text || "No preview available.")}</div>
+          <div class="row-subtle">${escapeHtml(source)} · ${escapeHtml(formatDate(createdAt))}</div>
         </div>
-      </td>
-      <td data-label="Source">
-        <div class="row-title">${escapeHtml(source)}</div>
-      </td>
-      <td data-label="Status">
         <span class="badge post-status post-status--${escapeHtml(info.tone)}">${escapeHtml(info.label)}</span>
-      </td>
-      <td data-label="Created At">${escapeHtml(formatDate(createdAt))}</td>
-    </tr>`;
+      </div>
+      <div class="content-box post-card-preview">${escapeHtml(preview)}</div>
+      <div class="post-card-actions">
+        <button class="secondary" type="button" data-open-post-id="${escapeHtml(post.id)}">Edit</button>
+        <button class="workflow-primary" type="button" data-publish-post-id="${escapeHtml(post.id)}">Send to Telegram</button>
+      </div>
+    </article>`;
 }
 
 function renderPosts() {
-  const body = $("#postsTableBody");
+  const body = $("#postsList");
   const summary = $("#postsSummary");
   if (!body || !summary) return;
 
   if (!hasAdminKey()) {
-    renderPlaceholder("#postsTableBody", "Enter the admin access code to view generated posts.", 4);
+    setHtml("#postsList", `<div class="empty-state">Enter the admin access code to view generated posts.</div>`);
     setHtml("#postsSummary", "");
     return;
   }
@@ -1193,26 +1191,24 @@ function renderPosts() {
   const filteredPosts = state.postStatusFilter
     ? state.posts.filter((post) => {
       if (state.postStatusFilter === "generated") return post.status === "generated" || post.status === "pending_approval";
-      if (state.postStatusFilter === "failed") return post.status === "failed" || post.status === "rejected" || post.error;
+      if (state.postStatusFilter === "returned") return post.status === "rejected";
       return post.status === state.postStatusFilter;
     })
-    : state.posts;
+    : state.posts.filter((post) => post.status === "generated" || post.status === "pending_approval" || post.status === "rejected");
 
   if (!filteredPosts.length) {
-    renderPlaceholder("#postsTableBody", state.postStatusFilter ? "No posts match this status filter." : "No posts yet. Fetch news and then generate the first draft.", 4);
+    setHtml("#postsList", `<div class="empty-state">${escapeHtml(state.postStatusFilter ? "No posts match this status filter." : "No generated posts yet. Fetch news and generate the first draft.")}</div>`);
   } else {
     const sorted = [...filteredPosts].sort((left, right) => new Date(right.created_at) - new Date(left.created_at));
-    body.innerHTML = sorted.map(renderPostRow).join("");
+    body.innerHTML = sorted.map(renderPostCard).join("");
   }
 
   const counts = postSummaryCounts(state.posts);
   setHtml(
     "#postsSummary",
     [
-      `<button type="button" class="status status--run" data-post-filter="new">New: ${counts.new}</button>`,
-      `<button type="button" class="status status--wait" data-post-filter="generated">Generated: ${counts.generated}</button>`,
-      `<button type="button" class="status status--ok" data-post-filter="published">Published: ${counts.published}</button>`,
-      `<button type="button" class="status status--error" data-post-filter="failed">Failed: ${counts.failed}</button>`,
+      `<button type="button" class="status status--wait" data-post-filter="generated">Generated on site: ${counts.generated}</button>`,
+      `<button type="button" class="status status--error" data-post-filter="returned">Returned from Telegram: ${counts.returned}</button>`,
       state.postStatusFilter ? `<button type="button" class="status slim" data-post-filter="">Show all</button>` : "",
     ].join("")
   );
@@ -1729,7 +1725,7 @@ function renderSettings() {
 function renderLockedPrivateBlocks() {
   renderPlaceholder("#themesTableBody", "Enter the admin access code to manage themes.", 3);
   renderPlaceholder("#keywordsTableBody", "Enter the admin access code to manage keywords.", 3);
-  renderPlaceholder("#postsTableBody", "Enter the admin access code to view generated posts.", 4);
+  setHtml("#postsList", `<div class="empty-state">Enter the admin access code to view generated posts.</div>`);
   renderPlaceholder("#sourcesTableBody", "Enter the admin access code to manage sources.", 5);
   setHtml("#postsSummary", "");
   setStatus("#sourcesStatus", "WAIT", "Source is not ready yet");
@@ -2587,13 +2583,14 @@ function bindEvents() {
       return;
     }
 
-    if (target.closest("tr") && target.closest("#postsTableBody")) {
-      const row = target.closest("tr[data-open-post-id]");
-      if (row) {
-        openPostModal(row.dataset.openPostId);
-        return;
-      }
+    if (target.dataset.publishPostId) {
+      const post = state.posts.find((item) => item.id === target.dataset.publishPostId);
+      if (!post) return;
+      const text = post.generated_text || post.news?.summary || post.news?.raw_text || "";
+      await publishPost(post.id, text);
+      return;
     }
+
   });
 
   document.body.addEventListener("change", async (event) => {

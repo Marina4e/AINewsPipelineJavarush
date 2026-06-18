@@ -5,7 +5,9 @@ Compact project docs:
 - [Українська документація](README_UA.md)
 - [English documentation](README_EN.md)
 
-AI News Pipeline is a FastAPI + Celery dashboard for collecting RSS/Telegram news, preparing AI or demo Telegram posts, reviewing drafts, and publishing approved content.
+[![CI](https://github.com/<your-github-username>/<your-repo-name>/actions/workflows/ci.yml/badge.svg)](https://github.com/<your-github-username>/<your-repo-name>/actions/workflows/ci.yml)
+
+AI News Pipeline is a FastAPI + Celery dashboard for collecting RSS and Telegram news, preparing AI or demo Telegram posts, reviewing drafts, and publishing approved content.
 
 Quick start:
 
@@ -25,10 +27,25 @@ Main links:
 - Redis Commander: `http://localhost:8081/`
 - Adminer: `http://localhost:8082/`
 
+Included assets:
+
+- GitHub CI workflow: [`.github/workflows/ci.yml`](.github/workflows/ci.yml)
+- Screenshots: [`docs/screenshots/`](docs/screenshots/)
+
 Terminal check:
 
 ```powershell
 .\\.venv\\Scripts\\python.exe -m pytest -q
 docker compose logs --tail=80 app
+docker compose logs --tail=80 celery
+docker compose logs --tail=80 flower
 Invoke-WebRequest http://localhost:8000/api/health
 ```
+
+Generate `ADMIN_API_KEY`:
+
+```powershell
+.\\.venv\\Scripts\\python.exe -c "import secrets; print(secrets.token_urlsafe(32))"
+```
+
+Note: replace `<your-github-username>` and `<your-repo-name>` in the badge URL after publishing the repository.

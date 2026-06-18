@@ -1,30 +1,25 @@
 # AI News Pipeline
 
-AI News Pipeline is an educational FastAPI service for collecting RSS/Telegram news, preparing AI or demo Telegram posts, reviewing drafts, and publishing approved content to a channel.
+[![CI](https://github.com/<your-github-username>/<your-repo-name>/actions/workflows/ci.yml/badge.svg)](https://github.com/<your-github-username>/<your-repo-name>/actions/workflows/ci.yml)
+![Python](https://img.shields.io/badge/Python-3.11-blue)
+![FastAPI](https://img.shields.io/badge/FastAPI-dashboard-0ea5a4)
+![Docker](https://img.shields.io/badge/Docker-Compose-2563eb)
 
-## Implemented
+I prepared this project as an educational service for automated AI news collection from RSS and Telegram, draft generation, manual review, and Telegram publishing. It is ready to be demonstrated both through the dashboard and through terminal/API flows, which is important for technical evaluation.
 
-- FastAPI backend with admin API and Swagger.
-- Static dashboard in `app/frontend/`, no separate frontend build step.
-- Celery worker + beat for background pipeline jobs.
-- PostgreSQL for application data, Redis for queues.
-- RSS parser, Telegram parser through Telethon, Telegram publishing through Bot API or Telethon.
-- OpenAI generation with a safe demo fallback when no key is configured.
-- Topics, sources, keywords, news queue, post queue, logs and status panels.
-- Alembic migrations, Docker Compose, and `pytest` tests.
-- API and UI controls for starting and stopping the pipeline.
+## Project Summary
 
-## Team Report
+- FastAPI backend with Swagger: `http://localhost:8000/docs`
+- static dashboard with no separate frontend build step
+- Celery pipeline for collection, filtering, generation, and publishing
+- PostgreSQL for main data, Redis for queues
+- RSS and Telegram source support
+- OpenAI generation or a demo fallback
+- manual control, logs, history, and status panels
 
-During exam preparation the team:
+## CI/CD
 
-- assembled a complete Docker Compose stack;
-- moved secrets to `.env` and documented `.env.example`;
-- added OpenAI, Telegram, health, and public status checks;
-- made the project demonstrable without a paid OpenAI key;
-- added demo generation for a reliable exam scenario;
-- covered core API, parser, and utility behavior with tests;
-- verified terminal workflows, not only the dashboard.
+The repository now includes a GitHub Actions workflow: [`.github/workflows/ci.yml`](.github/workflows/ci.yml). It runs a basic CI check with dependency installation and `pytest -q` on push and pull request.
 
 ## Quick Start
 
@@ -35,48 +30,52 @@ docker compose up -d
 docker compose ps
 ```
 
-After Python or frontend changes:
-
-```powershell
-docker compose build app
-docker compose up -d app
-```
-
-Open:
+Links:
 
 - Dashboard: `http://localhost:8000/`
 - Swagger: `http://localhost:8000/docs`
+- Health: `http://localhost:8000/api/health`
 - Flower: `http://localhost:5555/`
 - Redis Commander: `http://localhost:8081/`
 - Adminer: `http://localhost:8082/`
 
 ## Minimal Configuration
 
-Create `.env` from `.env.example` and replace:
+Required in `.env`:
 
 - `POSTGRES_PASSWORD`
 - `ADMIN_API_KEY`
 
 Optional:
 
-- `OPENAI_API_KEY` - real AI generation;
-- `TELEGRAM_BOT_TOKEN` + `TELEGRAM_TARGET_CHANNEL` - publishing;
-- `TELEGRAM_API_ID` + `TELEGRAM_API_HASH` - reading Telegram sources.
+- `OPENAI_API_KEY` for real AI generation
+- `TELEGRAM_BOT_TOKEN` + `TELEGRAM_TARGET_CHANNEL` for publishing
+- `TELEGRAM_API_ID` + `TELEGRAM_API_HASH` for Telegram source reading
 
-Generate `ADMIN_API_KEY`:
-
-```powershell
-python -c "import secrets; print(secrets.token_urlsafe(32))"
-```
-
-## Terminal Verification
+## Terminal Workflow
 
 ```powershell
 .\\.venv\\Scripts\\python.exe -m pytest -q
 docker compose ps
 docker compose logs --tail=80 app
+docker compose logs --tail=80 celery
+docker compose logs --tail=80 flower
 Invoke-WebRequest http://localhost:8000/api/health
 Invoke-WebRequest http://localhost:8000/api/public-status
+```
+
+Generate `ADMIN_API_KEY`:
+
+```powershell
+.\\.venv\\Scripts\\python.exe -c "import secrets; print(secrets.token_urlsafe(32))"
+```
+
+Quick log checks:
+
+```powershell
+docker compose logs --tail=120 app
+docker compose logs --tail=120 celery
+docker compose logs --tail=120 flower
 ```
 
 Admin API checks:
@@ -87,65 +86,85 @@ Invoke-RestMethod -Headers $headers http://localhost:8000/api/settings
 Invoke-RestMethod -Headers $headers -Method Post http://localhost:8000/api/openai/check
 Invoke-RestMethod -Headers $headers -Method Post http://localhost:8000/api/telegram/check
 Invoke-RestMethod -Headers $headers -Method Post http://localhost:8000/api/pipeline/run
-Invoke-RestMethod -Headers $headers -Method Post http://localhost:8000/api/pipeline/stop
 Invoke-RestMethod -Headers $headers http://localhost:8000/api/pipeline/status
 Invoke-RestMethod -Headers $headers http://localhost:8000/api/logs/errors
+Invoke-RestMethod -Headers $headers http://localhost:8000/api/posts
 ```
-
-## Dashboard Flow
-
-1. Open `http://localhost:8000/`.
-2. Paste `ADMIN_API_KEY` in Settings.
-3. Add a topic, source, and keywords.
-4. Click `Start Pipeline` or `Fetch News`.
-5. Open a collected news item and generate a draft.
-6. Edit the text and click `Send to Telegram`.
-
-The OpenAI key is optional: demo mode lets the project be demonstrated without paid external calls.
 
 ## Architecture
 
-- `app/main.py` - FastAPI entrypoint and dashboard.
-- `app/api/` - REST endpoints, auth, schemas.
-- `app/tasks.py` - Celery pipeline.
-- `app/news_parser/` - RSS and Telegram collection.
-- `app/ai/` - OpenAI client and demo fallback.
-- `app/telegram/` - bot and publishing.
-- `app/services/` - business logic.
-- `app/frontend/` - HTML/CSS/JS dashboard.
-- `alembic/` - migrations.
-- `tests/` - pytest checks.
+- `app/main.py` - FastAPI entrypoint and dashboard
+- `app/api/` - endpoints, auth, response schemas
+- `app/tasks.py` - Celery pipeline
+- `app/news_parser/` - RSS and Telegram parsing
+- `app/ai/` - OpenAI client and demo fallback
+- `app/telegram/` - bot and publishing
+- `app/services/` - business logic and source catalog
+- `app/frontend/` - HTML/CSS/JS dashboard
+- `tests/` - pytest scenarios
 
-## Useful Commands
+## What I polished for submission
 
-```powershell
-docker compose up -d
-docker compose down
-docker compose logs --tail=80 app
-docker compose logs --tail=80 flower
-docker compose exec app alembic upgrade head
-docker compose exec app python -m pytest -q
-```
+- unified the dashboard styling
+- synchronized Telegram templates between frontend and backend
+- improved popup and status feedback
+- removed the outdated stop pipeline flow from UI and docs
+- kept terminal and API usage as first-class workflows
+- added GitHub CI workflow
+- rewrote the README set for submission
+
+## Requirements Checklist
+
+- [x] News collection from websites
+- [x] News collection from public Telegram channels
+- [x] Separate RSS and Telegram parsers
+- [x] Async processing through Celery
+- [x] Pipeline: parsing -> filtering -> generation -> publishing
+- [x] AI post generation through API or demo fallback
+- [x] OpenAI and Telegram error handling
+- [x] Filtering by keywords, language, and source
+- [x] Basic duplicate protection
+- [x] Telegram publishing
+- [x] API for source management
+- [x] API for keywords and filters
+- [x] API for post history and error logs
+- [x] Swagger API documentation
+- [x] Docker Compose demo setup
+- [x] Terminal-based verification flow
+
+## Screenshots
+
+### Dashboard overview
+
+![Dashboard overview](docs/screenshots/dashboard-overview.png)
+
+### Settings
+
+![Settings panel](docs/screenshots/settings-panel.png)
+
+### Sources
+
+![Sources panel](docs/screenshots/sources-panel.png)
+
+### Developer tools
+
+![Developer tools](docs/screenshots/developer-tools.png)
 
 ## Common Issues
 
-- `401`: missing or wrong `ADMIN_API_KEY`.
-- `500 ADMIN_API_KEY is not configured`: `.env` still contains a placeholder.
-- No Telegram publishing: check bot token, channel username, and bot admin rights.
-- Telegram parsing fails: configure `TELEGRAM_API_ID`, `TELEGRAM_API_HASH`, and a Telethon session.
-- OpenAI fails: the project can still be demonstrated in demo mode; check `/api/openai/check`.
+- `401` - missing or invalid `ADMIN_API_KEY`
+- Telegram parsing fails - check `TELEGRAM_API_ID`, `TELEGRAM_API_HASH`, and the Telethon session
+- Telegram publishing fails - check the bot token, target channel, and bot admin rights
+- OpenAI is unavailable - the project can still be demonstrated in demo mode
 
-## Submission Readiness
+## Submission Ready
 
-The project can be presented in two ways:
-
-- through the dashboard for the user-facing workflow;
-- through PowerShell/API commands for technical inspection.
-
-Before submission, run:
+Before presenting the project, run:
 
 ```powershell
 .\\.venv\\Scripts\\python.exe -m pytest -q
 docker compose up -d
 Invoke-WebRequest http://localhost:8000/api/health
 ```
+
+For the final badge header, replace `<your-github-username>` and `<your-repo-name>` with the actual GitHub repository coordinates.
