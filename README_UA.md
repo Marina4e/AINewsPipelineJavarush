@@ -1,9 +1,15 @@
 # AI News Pipeline
 
-[![CI](https://github.com/<your-github-username>/<your-repo-name>/actions/workflows/ci.yml/badge.svg)](https://github.com/<your-github-username>/<your-repo-name>/actions/workflows/ci.yml)
+[![CI](https://github.com/Marina4e/AINewsPipelineJavarush/actions/workflows/ci.yml/badge.svg)](https://github.com/Marina4e/AINewsPipelineJavarush/actions/workflows/ci.yml)
 ![Python](https://img.shields.io/badge/Python-3.11-blue)
 ![FastAPI](https://img.shields.io/badge/FastAPI-dashboard-0ea5a4)
 ![Docker](https://img.shields.io/badge/Docker-Compose-2563eb)
+![Celery](https://img.shields.io/badge/Celery-task_queue-22c55e)
+![Flower](https://img.shields.io/badge/Flower-monitoring-c084fc)
+![Redis](https://img.shields.io/badge/Redis-broker-dc2626)
+![Celery Beat](https://img.shields.io/badge/Celery%20Beat-scheduler-f59e0b)
+![Telethon](https://img.shields.io/badge/Telethon-Telegram_API-38bdf8)
+![Telegram](https://img.shields.io/badge/Telegram-bot%20%26%20channel-2563eb)
 
 Я підготувала цей проєкт як навчальний сервіс для автоматизованого збору AI-новин із RSS та Telegram, генерації постів, ручного рев'ю та публікації в Telegram-канал. Проєкт можна показувати і через dashboard, і через термінал або API, що важливо для технічної здачі.
 
@@ -18,6 +24,8 @@
 - ручний запуск, ручна перевірка, логи, історія, статуси
 
 ## CI/CD
+
+Репозиторій: [git@github.com:Marina4e/AINewsPipelineJavarush.git](git@github.com:Marina4e/AINewsPipelineJavarush.git)
 
 У репозиторій додано GitHub Actions workflow: [`.github/workflows/ci.yml`](.github/workflows/ci.yml). Він запускає базову CI-перевірку: встановлення залежностей та `pytest -q` для pull request і push.
 
@@ -61,6 +69,9 @@ docker compose ps
 docker compose logs --tail=80 app
 docker compose logs --tail=80 celery
 docker compose logs --tail=80 flower
+docker compose logs -f app
+docker compose logs -f celery
+docker compose logs -f flower
 Invoke-WebRequest http://localhost:8000/api/health
 Invoke-WebRequest http://localhost:8000/api/public-status
 ```
@@ -81,7 +92,24 @@ $bytes = New-Object byte[] 32
 docker compose logs --tail=120 app
 docker compose logs --tail=120 celery
 docker compose logs --tail=120 flower
+docker compose logs -f app celery
 ```
+
+![Логи та повернені матеріали](docs/screenshots/logs-generated-posts.png)
+
+Коротко про те, як я це зрозуміла під час роботи з цим застосунком:
+
+- `Celery` у цьому проєкті відповідає за важкі фонові задачі: збір новин, генерацію постів і публікацію, щоб dashboard не зависав.
+- `Redis` тут працює як брокер черги: саме через нього FastAPI, Celery worker і pipeline обмінюються задачами та станами.
+- `Celery Beat` потрібен для регулярного запуску сценаріїв без ручного кліку, тобто для автоматичного розкладу парсингу.
+- `Flower` виявився дуже корисним для швидкої перевірки, чи задача реально стартувала, зависла, впала або завершилась успішно.
+
+Що конкретно я винесла з цього проєкту:
+
+- я навчилася відрізняти помилки UI від помилок воркера, брокера і зовнішніх інтеграцій;
+- я побачила, що логи, черга задач і статуси в dashboard треба перевіряти разом, а не окремо;
+- я краще зрозуміла, як будувати pipeline, де FastAPI лише запускає процес, а основна робота виконується асинхронно;
+- я навчилася дебажити Telegram, Celery і фонова виконання не тільки через код, а й через runtime-логи.
 
 Адмінські запити:
 
@@ -175,4 +203,4 @@ docker compose up -d
 Invoke-WebRequest http://localhost:8000/api/health
 ```
 
-Для остаточної шапки badge достатньо замінити `<your-github-username>` і `<your-repo-name>` на дані вашого GitHub-репозиторію.
+GitHub workflow уже прив'язаний до репозиторію `Marina4e/AINewsPipelineJavarush`.

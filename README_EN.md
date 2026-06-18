@@ -1,9 +1,15 @@
 # AI News Pipeline
 
-[![CI](https://github.com/<your-github-username>/<your-repo-name>/actions/workflows/ci.yml/badge.svg)](https://github.com/<your-github-username>/<your-repo-name>/actions/workflows/ci.yml)
+[![CI](https://github.com/Marina4e/AINewsPipelineJavarush/actions/workflows/ci.yml/badge.svg)](https://github.com/Marina4e/AINewsPipelineJavarush/actions/workflows/ci.yml)
 ![Python](https://img.shields.io/badge/Python-3.11-blue)
 ![FastAPI](https://img.shields.io/badge/FastAPI-dashboard-0ea5a4)
 ![Docker](https://img.shields.io/badge/Docker-Compose-2563eb)
+![Celery](https://img.shields.io/badge/Celery-task_queue-22c55e)
+![Flower](https://img.shields.io/badge/Flower-monitoring-c084fc)
+![Redis](https://img.shields.io/badge/Redis-broker-dc2626)
+![Celery Beat](https://img.shields.io/badge/Celery%20Beat-scheduler-f59e0b)
+![Telethon](https://img.shields.io/badge/Telethon-Telegram_API-38bdf8)
+![Telegram](https://img.shields.io/badge/Telegram-bot%20%26%20channel-2563eb)
 
 I prepared this project as an educational service for automated AI news collection from RSS and Telegram, draft generation, manual review, and Telegram publishing. It is ready to be demonstrated both through the dashboard and through terminal/API flows, which is important for technical evaluation.
 
@@ -18,6 +24,8 @@ I prepared this project as an educational service for automated AI news collecti
 - manual control, logs, history, and status panels
 
 ## CI/CD
+
+Repository: [git@github.com:Marina4e/AINewsPipelineJavarush.git](git@github.com:Marina4e/AINewsPipelineJavarush.git)
 
 The repository now includes a GitHub Actions workflow: [`.github/workflows/ci.yml`](.github/workflows/ci.yml). It runs a basic CI check with dependency installation and `pytest -q` on push and pull request.
 
@@ -60,6 +68,9 @@ docker compose ps
 docker compose logs --tail=80 app
 docker compose logs --tail=80 celery
 docker compose logs --tail=80 flower
+docker compose logs -f app
+docker compose logs -f celery
+docker compose logs -f flower
 Invoke-WebRequest http://localhost:8000/api/health
 Invoke-WebRequest http://localhost:8000/api/public-status
 ```
@@ -76,7 +87,24 @@ Quick log checks:
 docker compose logs --tail=120 app
 docker compose logs --tail=120 celery
 docker compose logs --tail=120 flower
+docker compose logs -f app celery
 ```
+
+![Logs and returned materials](docs/screenshots/logs-generated-posts.png)
+
+What I learned from working with this exact application:
+
+- `Celery` handles the heavy background work here: collecting news, generating drafts, and publishing posts, so the dashboard stays responsive.
+- `Redis` acts as the message broker between FastAPI, Celery workers, and the pipeline runtime.
+- `Celery Beat` is responsible for scheduled execution, which means parsing can run automatically without manual clicks.
+- `Flower` became the fastest way for me to see whether a task was queued, started, retried, failed, or finished successfully.
+
+My practical takeaways from this project:
+
+- I learned to separate UI issues from worker, broker, and external integration issues.
+- I saw that logs, queue state, and dashboard status need to be checked together, not one by one.
+- I better understood how to build a pipeline where FastAPI triggers the process, but the real work runs asynchronously.
+- I learned to debug Telegram, Celery, and background execution not only through code, but through runtime logs and task monitoring.
 
 Admin API checks:
 
@@ -167,4 +195,4 @@ docker compose up -d
 Invoke-WebRequest http://localhost:8000/api/health
 ```
 
-For the final badge header, replace `<your-github-username>` and `<your-repo-name>` with the actual GitHub repository coordinates.
+The GitHub workflow badge is already linked to `Marina4e/AINewsPipelineJavarush`.

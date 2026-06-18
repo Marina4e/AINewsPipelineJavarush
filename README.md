@@ -5,7 +5,12 @@ Compact project docs:
 - [Українська документація](README_UA.md)
 - [English documentation](README_EN.md)
 
-[![CI](https://github.com/<your-github-username>/<your-repo-name>/actions/workflows/ci.yml/badge.svg)](https://github.com/<your-github-username>/<your-repo-name>/actions/workflows/ci.yml)
+[![CI](https://github.com/Marina4e/AINewsPipelineJavarush/actions/workflows/ci.yml/badge.svg)](https://github.com/Marina4e/AINewsPipelineJavarush/actions/workflows/ci.yml)
+![Celery](https://img.shields.io/badge/Celery-task_queue-22c55e)
+![Flower](https://img.shields.io/badge/Flower-monitoring-c084fc)
+![Redis](https://img.shields.io/badge/Redis-broker-dc2626)
+![Telethon](https://img.shields.io/badge/Telethon-Telegram_API-38bdf8)
+![Telegram](https://img.shields.io/badge/Telegram-bot%20%26%20channel-2563eb)
 
 AI News Pipeline is a FastAPI + Celery dashboard for collecting RSS and Telegram news, preparing AI or demo Telegram posts, reviewing drafts, and publishing approved content.
 
@@ -39,6 +44,7 @@ Terminal check:
 docker compose logs --tail=80 app
 docker compose logs --tail=80 celery
 docker compose logs --tail=80 flower
+docker compose logs -f app celery
 Invoke-WebRequest http://localhost:8000/api/health
 ```
 
@@ -48,4 +54,4 @@ Generate `ADMIN_API_KEY`:
 .\\.venv\\Scripts\\python.exe -c "import secrets; print(secrets.token_urlsafe(32))"
 ```
 
-Note: replace `<your-github-username>` and `<your-repo-name>` in the badge URL after publishing the repository.
+Repository: `git@github.com:Marina4e/AINewsPipelineJavarush.git`
