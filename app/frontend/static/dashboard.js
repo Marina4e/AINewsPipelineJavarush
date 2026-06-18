@@ -1451,18 +1451,18 @@ function renderLiveFeed() {
 
 function logFixHint(line) {
   const text = String(line || "").toLowerCase();
-  if (text.includes("openai") || text.includes("ai") || text.includes("model")) {
-    return {
-      section: "settingsSection",
-      label: "Open Settings",
-      hint: "Check the OpenAI key, model, and connection test.",
-    };
-  }
   if (text.includes("telegram") || text.includes("bot") || text.includes("channel")) {
     return {
       section: "settingsSection",
       label: "Open Settings",
       hint: "Check Telegram bot token, API ID, API HASH, and channel settings.",
+    };
+  }
+  if (text.includes("openai") || text.includes(" model ") || text.includes("gpt") || text.includes("rate limit")) {
+    return {
+      section: "settingsSection",
+      label: "Open Settings",
+      hint: "Check the OpenAI key, model, and connection test.",
     };
   }
   if (text.includes("source") || text.includes("rss") || text.includes("feed") || text.includes("http")) {

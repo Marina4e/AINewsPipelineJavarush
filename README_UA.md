@@ -28,6 +28,7 @@ Copy-Item .env.example .env
 docker compose build
 docker compose up -d
 docker compose ps
+docker compose down -v -вихід
 ```
 
 Посилання:
@@ -94,6 +95,9 @@ Invoke-RestMethod -Headers $headers http://localhost:8000/api/pipeline/status
 Invoke-RestMethod -Headers $headers http://localhost:8000/api/logs/errors
 Invoke-RestMethod -Headers $headers http://localhost:8000/api/posts
 ```
+## Testing:
+
+.venv\Scripts\python.exe -m pytest -q -> 8/8
 
 ## Архітектура
 
