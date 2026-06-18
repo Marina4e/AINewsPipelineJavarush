@@ -8,7 +8,6 @@ from sqlalchemy.orm import Session
 from app.config import get_settings
 from app.database import SessionLocal, init_db
 from app.models import NewsItem, Post, PostStatus
-from app.tasks import publish_post_task
 from app.utils import configure_logging
 
 configure_logging()
@@ -25,7 +24,6 @@ MAIN_ACTIONS = [
     BotAction("Статус", "status"),
     BotAction("Останні новини", "latest_news"),
     BotAction("Останній матеріал", "latest_material"),
-    BotAction("Підтвердити публікацію", "approve_latest"),
     BotAction("Повернути на редагування", "return_latest"),
 ]
 
@@ -102,8 +100,6 @@ class TelegramDashboardBot:
             text = self._latest_news_text()
         elif action == "latest_material":
             text = self._latest_material_text()
-        elif action == "approve_latest":
-            text = self._approve_latest_post()
         elif action == "return_latest":
             text = self._return_latest_post()
         else:
@@ -160,36 +156,33 @@ class TelegramDashboardBot:
         finally:
             db.close()
 
-    def _approve_latest_post(self) -> str:
-        db = self._session()
-        try:
-            post = (
-                db.query(Post)
-                .filter(Post.status.in_([PostStatus.pending_approval, PostStatus.generated, PostStatus.failed]))
-                .order_by(Post.created_at.desc())
-                .first()
-            )
-            if not post:
-                return "Немає матеріалу, який можна підтвердити."
-            post.status = PostStatus.generated
-            post.error = None
-            db.commit()
-            task = publish_post_task.delay(post.id)
-            return f"Публікацію поставлено в чергу Telegram: матеріал {post.id[:8]}, task {task.id}."
-        finally:
-            db.close()
-
     def _return_latest_post(self) -> str:
         db = self._session()
         try:
             post = (
                 db.query(Post)
-                .filter(Post.status.in_([PostStatus.generated, PostStatus.pending_approval, PostStatus.failed]))
+                .filter(Post.status.in_([PostStatus.generated, PostStatus.pending_approval, PostStatus.failed, PostStatus.published]))
                 .order_by(Post.created_at.desc())
                 .first()
             )
             if not post:
-                return "Немає AI-поста для повернення на редагування."
+                news = db.query(NewsItem).order_by(NewsItem.published_at.desc()).first()
+                if not news:
+                    return "Немає новини або матеріалу для повернення на редагування."
+                if news.post:
+                    post = news.post
+                else:
+                    seed_text = (news.raw_text or news.summary or news.title).strip()
+                    post = Post(
+                        news_id=news.id,
+                        generated_text=seed_text[:3900],
+                        status=PostStatus.rejected,
+                        error="Повернуто на редагування через Telegram-бот",
+                    )
+                    db.add(post)
+                    db.commit()
+                    db.refresh(post)
+                    return f"Останню новину {post.id[:8]} додано в dashboard як Returned from Telegram."
             post.status = PostStatus.rejected
             post.error = "Повернуто на редагування через Telegram-бот"
             db.commit()

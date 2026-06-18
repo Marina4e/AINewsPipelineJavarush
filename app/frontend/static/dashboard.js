@@ -1480,15 +1480,19 @@ function logFixHint(line) {
 }
 
 function renderErrorLogsPanel() {
+  const actionableCount =
+    state.sources.filter((item) => item.last_error).length +
+    state.posts.filter((post) => post.status === "failed" || post.status === "rejected" || post.error).length +
+    (pipelineContext().failed ? 1 : 0);
   const lines = (state.errorLogs || []).slice(-6).reverse();
-  const badgeCount = state.errorLogs.length;
+  const badgeCount = actionableCount;
   const badgeText = badgeCount ? `${badgeCount} error${badgeCount === 1 ? "" : "s"}` : "No errors";
   setStatus("#errorLogsBadge", badgeCount ? "ERROR" : "OK", badgeText);
   setText(
     "#errorLogsSummary",
     badgeCount
       ? "Each item below links to the area most likely to fix the issue."
-      : "No errors recorded yet. When something fails, the related fix path will appear here."
+      : "Current failed tasks are cleared. Historical log lines may still stay in logs/app.log."
   );
 
   if (!lines.length) {
@@ -1561,7 +1565,6 @@ async function sendNewsToTelegram(newsId) {
     await loadPrivateData();
     renderAll();
     done("success", "Sent");
-    openSection("postsSection");
     showToast("News queued for Telegram", "ok");
   } catch (error) {
     done("error", "Error");
@@ -1579,7 +1582,6 @@ function renderDashboard() {
   const failed =
     state.sources.filter((item) => item.last_error).length +
     state.posts.filter((post) => post.status === "failed" || post.status === "rejected" || post.error).length +
-    (state.errorLogs?.length || 0) +
     (context.failed ? 1 : 0);
 
   setText("#statNewsCollected", String(collected));
@@ -2243,7 +2245,6 @@ async function publishPendingPost() {
     done("success", "Sent");
     await loadPrivateData();
     renderAll();
-    openSection("postsSection");
     showToast("Send to Telegram: backend queued the approved draft for Telegram delivery.", "ok");
   } catch (error) {
     done("error", "Error");
@@ -2527,6 +2528,12 @@ function bindEvents() {
       if (target.dataset.focusPanel === "liveFeed") {
         window.requestAnimationFrame(() => {
           document.getElementById("pipelineLiveFeedCard")?.scrollIntoView({ behavior: "smooth", block: "center" });
+        });
+      } else if (target.dataset.focusPanel === "errorLogs") {
+        window.requestAnimationFrame(() => {
+          const card = document.getElementById("errorLogsCard");
+          if (card) card.open = true;
+          card?.scrollIntoView({ behavior: "smooth", block: "center" });
         });
       } else if (target.dataset.focusPanel === "newsQueue") {
         window.requestAnimationFrame(() => {
