@@ -182,10 +182,15 @@ class TelegramDashboardBot:
     def _return_latest_post(self) -> str:
         db = self._session()
         try:
-            post = db.query(Post).order_by(Post.created_at.desc()).first()
+            post = (
+                db.query(Post)
+                .filter(Post.status.in_([PostStatus.generated, PostStatus.pending_approval, PostStatus.failed]))
+                .order_by(Post.created_at.desc())
+                .first()
+            )
             if not post:
                 return "Немає AI-поста для повернення на редагування."
-            post.status = PostStatus.pending_approval
+            post.status = PostStatus.rejected
             post.error = "Повернуто на редагування через Telegram-бот"
             db.commit()
             return f"Матеріал {post.id[:8]} повернуто на редагування в dashboard."

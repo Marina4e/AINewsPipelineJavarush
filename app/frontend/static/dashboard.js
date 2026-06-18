@@ -537,7 +537,7 @@ function postStatusInfo(status) {
     pending_approval: { label: "Generated", tone: "wait" },
     published: { label: "Published", tone: "ok" },
     failed: { label: "Failed", tone: "error" },
-    rejected: { label: "Failed", tone: "error" },
+    rejected: { label: "Returned", tone: "error" },
   };
   return map[status] || { label: String(status || "New"), tone: "wait" };
 }
