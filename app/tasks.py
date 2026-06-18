@@ -34,6 +34,7 @@ celery_app = Celery(
 )
 
 celery_app.conf.timezone = "UTC"
+celery_app.conf.broker_connection_retry_on_startup = True
 celery_app.conf.beat_schedule = {
     "parse-news-every-configured-interval": {
         "task": "app.tasks.parse_all_sources_task",

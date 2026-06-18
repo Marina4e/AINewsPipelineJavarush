@@ -48,14 +48,13 @@
                     <p class="eyebrow">Pipeline Status</p>
                     <h2>Pipeline Status</h2>
                   </div>
-                  <button id="pipelineStatusBadge" class="status" type="button" data-open-section="dashboardSection" data-focus-panel="liveFeed">Ready</button>
+                  <button id="pipelineStatusBadge" class="status" type="button">Ready</button>
                 </div>
                 <p id="pipelineStatusMessage" class="hint">Pipeline paused. Start it when sources are ready.</p>
                 <div class="button-row">
                   <button id="startPipelineBtn" class="workflow-primary" type="button">Start Pipeline</button>
+                  <button id="jumpToSourcesBtn" class="secondary" type="button">Sources</button>
                 </div>
-                <div id="pipelineInsight" class="pipeline-insight">Ready means sources and settings can be checked, but no collection is running yet.</div>
-                <div id="pipelineStepper" class="stepper" aria-label="Pipeline stages"></div>
               </article>
 
               <article class="dashboard-card dashboard-card--stats">
@@ -90,13 +89,16 @@
                 </div>
               </article>
 
-              <details id="pipelineLiveFeedCard" class="dashboard-card dashboard-card--live live-accordion" open>
+              <details id="pipelineLiveFeedCard" class="dashboard-card dashboard-card--live live-accordion">
                 <summary class="live-accordion-summary">
                   <div>
                     <p class="eyebrow">Live Activity</p>
-                    <h2>Current Pipeline Status</h2>
+                    <h2 class="dashboard-title">Current Pipeline Status & Ready News</h2>
                   </div>
-                  <button id="pipelineLiveBadge" class="status slim" type="button" data-open-section="dashboardSection" data-focus-panel="liveFeed">Idle</button>
+                  <div class="summary-badges">
+                    <button id="pipelineLiveBadge" class="status slim" type="button" data-open-section="dashboardSection" data-focus-panel="liveFeed">Idle</button>
+                    <button id="newsQueueBadge" class="status slim" type="button" data-open-section="dashboardSection" data-focus-panel="liveFeed">0 items</button>
+                  </div>
                 </summary>
                 <div class="live-accordion-body">
                   <div class="live-summary-grid">
@@ -105,7 +107,7 @@
                       <strong id="pipelineLiveCurrentAction">Waiting for a manual start.</strong>
                     </div>
                     <div class="live-summary-tile">
-                      <span>Active stage</span>
+                      <span>Ready news</span>
                       <strong id="pipelineLiveActiveStage">Idle</strong>
                     </div>
                     <div class="live-summary-tile">
@@ -119,59 +121,51 @@
                   </div>
                   <div id="pipelineLiveSummary" class="live-summary">Start Pipeline to see collection updates. AI generation stays manual through Generate Post.</div>
                   <div id="pipelineLiveFeed" class="live-feed"></div>
+                  <div class="table-wrap ready-news-table">
+                    <table class="data-table data-table--clickable">
+                      <thead>
+                        <tr>
+                          <th>Title</th>
+                          <th>Source</th>
+                          <th>Status</th>
+                          <th>Actions</th>
+                        </tr>
+                      </thead>
+                      <tbody id="newsQueueTableBody"></tbody>
+                    </table>
+                  </div>
                 </div>
               </details>
 
-              <article id="newsQueueCard" class="dashboard-card dashboard-card--news dashboard-card--wide">
-                <div class="card-head">
-                  <div>
-                    <p class="eyebrow">Collected News</p>
-                    <h2>Review and publish manually</h2>
-                  </div>
-                  <button id="newsQueueBadge" class="status slim" type="button" data-open-section="dashboardSection" data-focus-panel="newsQueue">0 items</button>
-                </div>
-                <p class="hint">Choose a news item, edit the draft with AI, then send it to Telegram when you're ready.</p>
-                <div class="table-wrap">
-                  <table class="data-table data-table--clickable">
-                    <thead>
-                      <tr>
-                        <th>Title</th>
-                        <th>Source</th>
-                        <th>Status</th>
-                        <th>Actions</th>
-                      </tr>
-                    </thead>
-                    <tbody id="newsQueueTableBody"></tbody>
-                  </table>
-                </div>
-              </article>
-
-              <article class="dashboard-card dashboard-card--activity">
-                <div class="card-head">
+              <details id="lastActivityCard" class="dashboard-card dashboard-card--activity live-accordion">
+                <summary class="live-accordion-summary">
                   <div>
                     <p class="eyebrow">Last Activity</p>
-                    <h2>Last Activity</h2>
+                    <h2 class="dashboard-title">Last Activity</h2>
+                  </div>
+                  <button id="activityBadge" class="status slim" type="button" data-open-section="dashboardSection">0 events</button>
+                </summary>
+                <div class="live-accordion-body">
+                  <div class="table-wrap">
+                    <table class="data-table">
+                      <thead>
+                        <tr>
+                          <th>Time</th>
+                          <th>Action</th>
+                          <th>Status</th>
+                        </tr>
+                      </thead>
+                      <tbody id="activityTableBody"></tbody>
+                    </table>
                   </div>
                 </div>
-                <div class="table-wrap">
-                  <table class="data-table">
-                    <thead>
-                      <tr>
-                        <th>Time</th>
-                        <th>Action</th>
-                        <th>Status</th>
-                      </tr>
-                    </thead>
-                    <tbody id="activityTableBody"></tbody>
-                  </table>
-                </div>
-              </article>
+              </details>
 
-              <details id="errorLogsCard" class="dashboard-card dashboard-card--logs live-accordion" open>
+              <details id="errorLogsCard" class="dashboard-card dashboard-card--logs live-accordion">
                 <summary class="live-accordion-summary">
                   <div>
                     <p class="eyebrow">Logs & Fixes</p>
-                    <h2>Failed Tasks and Recovery Hints</h2>
+                    <h2 class="dashboard-title">Failed Tasks and Recovery Hints</h2>
                   </div>
                   <button id="errorLogsBadge" class="status slim" type="button" data-open-section="settingsSection">No errors</button>
                 </summary>
@@ -195,14 +189,6 @@
                   <button id="publishPendingBtn" class="secondary" type="button">Send to Telegram</button>
                   <button id="undoDashboardBtn" class="secondary" type="button">Undo Dashboard</button>
                   <button id="refreshBtn" class="secondary" type="button">Refresh</button>
-                </div>
-                <div id="quickActionNote" class="hint">Guided workflow: Fetch News → Generate Post → Review → Send to Telegram.</div>
-                <div class="action-guide">
-                  <div><strong>Fetch News</strong><span>collects fresh items from enabled RSS and Telegram sources.</span></div>
-                  <div><strong>Generate Post (AI)</strong><span>creates one AI draft only after the user clicks it.</span></div>
-                  <div><strong>Send to Telegram</strong><span>sends the first generated or pending post to Telegram.</span></div>
-                  <div><strong>Undo Dashboard</strong><span>resets the open panels and returns the dashboard to its default view.</span></div>
-                  <div><strong>Refresh</strong><span>reloads dashboard data, task status, posts, sources, and errors.</span></div>
                 </div>
               </article>
             </div>
@@ -234,7 +220,7 @@
             </div>
 
             <details class="subdetails source-library" open>
-              <summary>Ready templates and search results</summary>
+              <summary>READY TEMPLATES AND SEARCH RESULTS</summary>
               <div class="subbody">
                 <div class="template-toolbar template-toolbar--sources">
                   <input id="sourceTemplateSearch" placeholder="Search templates or channels" autocomplete="off" />
@@ -247,7 +233,7 @@
                   <details class="source-accordion">
                     <summary>
                       <span>RSS</span>
-                      <small>Ready templates and matching results</small>
+                      <small>Templates and matching results</small>
                     </summary>
                     <div class="source-accordion-body">
                       <div id="rssVisibleSuggestionsList" class="list compact"></div>
@@ -256,7 +242,7 @@
                   <details class="source-accordion">
                     <summary>
                       <span>Telegram</span>
-                      <small>Ready templates and matching results</small>
+                      <small>Templates and matching results</small>
                     </summary>
                     <div class="source-accordion-body">
                       <div id="telegramVisibleSuggestionsList" class="list compact"></div>
@@ -505,8 +491,7 @@
                 <div class="dev-tools">
                   <a class="link-button secondary" href="/docs" target="_blank" rel="noreferrer">Swagger</a>
                   <a class="link-button secondary" href="/api/public-status" target="_blank" rel="noreferrer">Public status</a>
-                  <a class="link-button secondary" href="http://localhost:5555/" target="_blank" rel="noreferrer">Celery</a>
-                  <a class="link-button secondary" href="http://localhost:5556/" target="_blank" rel="noreferrer">Flower</a>
+                  <a class="link-button secondary" href="http://localhost:5555/" target="_blank" rel="noreferrer">Celery / Flower</a>
                   <a class="link-button secondary" href="http://localhost:8081/" target="_blank" rel="noreferrer">Redis Commander</a>
                   <a class="link-button secondary" href="http://localhost:8082/" target="_blank" rel="noreferrer">Adminer</a>
                 </div>
@@ -602,6 +587,7 @@
 
         <div class="button-row post-modal-actions">
           <button id="regeneratePostBtn" class="secondary" type="button">Regenerate Post</button>
+          <div id="regeneratePostState" class="status slim">Ready to regenerate</div>
           <button id="publishPostBtn" class="workflow-primary" type="button">Send to Telegram</button>
           <button id="deletePostBtn" class="danger" type="button">Delete</button>
         </div>

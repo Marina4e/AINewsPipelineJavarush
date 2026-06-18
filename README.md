@@ -1,18 +1,11 @@
 # AI News Pipeline
 
-AI News Pipeline collects news from RSS and Telegram, prepares materials with AI or manual editing, and publishes approved content to Telegram.
+Compact project docs:
 
-Current manual flow in the dashboard:
+- [Українська документація](README_UA.md)
+- [English documentation](README_EN.md)
 
-- `Start Pipeline` fetches news from enabled sources only
-- `Fetch News` is the guided dashboard action for the same collection step
-- `Generate Post (AI)` creates one draft only after an explicit user click
-- `Send to Telegram` publishes the approved or pending post manually
-
-Docs:
-
-- [README_UA.md](README_UA.md)
-- [README_EN.md](README_EN.md)
+AI News Pipeline is a FastAPI + Celery dashboard for collecting RSS/Telegram news, preparing AI or demo Telegram posts, reviewing drafts, and publishing approved content.
 
 Quick start:
 
@@ -20,68 +13,22 @@ Quick start:
 Copy-Item .env.example .env
 docker compose build
 docker compose up -d
+docker compose ps
 ```
-
-If you change the frontend or app code, rebuild only the `app` service:
-
-```powershell
-docker compose build app
-docker compose up -d app
-```
-
-Recommended frontend approach for a fast deadline:
-
-- keep the dashboard as a single static page served by FastAPI
-- avoid a separate React/Vue build step
-- use one Docker Compose stack so the whole project starts together
-
-This project already follows that approach through `app/frontend/` and the main `app` service.
-
-Frontend concept:
-
-- main screen is product-oriented for a Telegram content manager
-- technical tools are hidden in `Developer Tools`
-- source, AI, Telegram, posts, and logs are organized as accordion sections
 
 Main links:
 
 - Dashboard: `http://localhost:8000/`
-- Swagger: `http://localhost:8000/docs`
-- Public status: `http://localhost:8000/api/public-status`
+- API docs: `http://localhost:8000/docs`
+- Health: `http://localhost:8000/api/health`
 - Flower: `http://localhost:5555/`
-- Celery: `http://localhost:5555/`
-- Adminer: `http://localhost:8082/`
 - Redis Commander: `http://localhost:8081/`
+- Adminer: `http://localhost:8082/`
 
-Useful commands:
+Terminal check:
 
 ```powershell
-docker compose ps
+.\\.venv\\Scripts\\python.exe -m pytest -q
 docker compose logs --tail=80 app
-docker compose logs --tail=80 flower
-Invoke-WebRequest http://localhost:5555/
 Invoke-WebRequest http://localhost:8000/api/health
-Invoke-WebRequest http://localhost:8000/api/public-status
-Invoke-WebRequest http://localhost:8000/docs
 ```
-
-Admin checks:
-
-```powershell
-$headers = @{ 'X-API-Key' = 'PASTE_ADMIN_API_KEY_HERE' }
-Invoke-RestMethod -Headers $headers -Uri http://localhost:8000/api/settings
-Invoke-RestMethod -Headers $headers -Method Post -Uri http://localhost:8000/api/openai/check
-Invoke-RestMethod -Headers $headers -Method Post -Uri http://localhost:8000/api/pipeline/run
-Invoke-RestMethod -Headers $headers -Uri http://localhost:8000/api/logs/errors
-```
-
-Telegram and background flow:
-
-- open the dashboard at `http://localhost:8000/`
-- save `ADMIN_API_KEY` in the dashboard once per browser session
-- use `Start Pipeline` or `Запустить pipeline` from Sources to run parsing
-- stop a run with `Stop Pipeline` if it is still active
-- use OpenAI check to verify AI mode or demo mode
-- use `Generate Post (AI)` and `Send to Telegram` for the manual review flow
-- use the delivery section to verify Telegram configuration and queue publishing
-- watch `docker compose logs --tail=80 app` for the Telegram bot, Celery worker and FastAPI output

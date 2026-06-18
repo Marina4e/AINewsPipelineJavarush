@@ -32,34 +32,34 @@ const SOURCE_EXAMPLE_FALLBACKS = {
   ],
   tg: [
     {
-      name: "NEXTA Live",
-      url: "https://t.me/nexta_live",
-      description: "Fast channel for breaking news and social updates.",
+      name: "TechCrunch",
+      url: "https://t.me/techcrunchcom",
+      description: "Startup, AI, and technology news.",
     },
     {
-      name: "IT Ukraine Association",
-      url: "https://t.me/itukraineassociation",
-      description: "Ukrainian IT community, events, and market updates.",
+      name: "MIT Technology Review",
+      url: "https://t.me/technologyreview",
+      description: "AI research and emerging technologies.",
     },
     {
-      name: "IT Ukraine",
-      url: "https://t.me/itukraine",
-      description: "Ukrainian technology news and community updates.",
+      name: "The Verge",
+      url: "https://t.me/theverge",
+      description: "Consumer technology and AI news.",
     },
     {
-      name: "Telegraf UA",
-      url: "https://t.me/Telegraf_UA_channel",
-      description: "Ukrainian media, analysis, and breaking updates.",
+      name: "Hacker News",
+      url: "https://t.me/hackernews",
+      description: "Programming, startups, and engineering discussions.",
     },
     {
-      name: "Ukraine Online",
-      url: "https://t.me/UaOnlii",
-      description: "Operational Ukrainian news and social topics.",
+      name: "AI Breakfast",
+      url: "https://t.me/aibreakfast",
+      description: "Artificial intelligence news and analysis.",
     },
     {
-      name: "Sota.Vision",
-      url: "https://t.me/sotavisionmedia",
-      description: "Independent social and public affairs coverage.",
+      name: "OpenAI News",
+      url: "https://t.me/OpenAINewsroom",
+      description: "OpenAI ecosystem and generative AI updates.",
     },
   ],
 };
@@ -244,6 +244,32 @@ function showToast(message, tone = "info") {
   toast.hidden = false;
 }
 
+function showProcessPopup(title, detail, tone = "warn") {
+  showToast(`${title}: ${detail}`, tone);
+}
+
+function setRegenerateState(mode = "idle", text = "Ready to regenerate") {
+  const button = $("#regeneratePostBtn");
+  const badge = $("#regeneratePostState");
+  if (!button || !badge) return;
+
+  button.classList.remove("is-success", "is-error", "is-warn");
+  badge.classList.remove("status--ok", "status--error", "status--wait", "status--run");
+
+  if (mode === "running") {
+    button.classList.add("is-success");
+    badge.classList.add("status--ok");
+  } else if (mode === "error") {
+    button.classList.add("is-error");
+    badge.classList.add("status--error");
+  } else {
+    button.classList.add("is-warn");
+    badge.classList.add("status--wait");
+  }
+
+  badge.textContent = text;
+}
+
 function openDialog(selector) {
   const dialog = $(selector);
   if (!dialog) return;
@@ -373,7 +399,7 @@ const api = (path, options = {}) => requestJson(path, options, true);
 const publicApi = (path, options = {}) => requestJson(path, options, false);
 
 function withButtonState(button, busyLabel) {
-  if (!button) return () => {};
+  if (!button) return () => { };
   const original = button.dataset.originalText || button.textContent;
   button.dataset.originalText = original;
   button.disabled = true;
@@ -812,6 +838,14 @@ function openSourceTemplatesLibrary({ focusSearch = false, expandAll = true } = 
   });
 }
 
+function openSourcesWorkspace({ focusSearch = false, expandAll = true, scrollTarget = ".source-library" } = {}) {
+  openSection("sourcesSection");
+  openSourceTemplatesLibrary({ focusSearch, expandAll });
+  window.requestAnimationFrame(() => {
+    document.querySelector(scrollTarget)?.scrollIntoView({ behavior: "smooth", block: "start" });
+  });
+}
+
 function setSourceTemplateSearchQuery(query) {
   const value = normalize(query);
   state.sourceTemplateDraftQuery = value;
@@ -1158,10 +1192,10 @@ function renderPosts() {
 
   const filteredPosts = state.postStatusFilter
     ? state.posts.filter((post) => {
-        if (state.postStatusFilter === "generated") return post.status === "generated" || post.status === "pending_approval";
-        if (state.postStatusFilter === "failed") return post.status === "failed" || post.status === "rejected" || post.error;
-        return post.status === state.postStatusFilter;
-      })
+      if (state.postStatusFilter === "generated") return post.status === "generated" || post.status === "pending_approval";
+      if (state.postStatusFilter === "failed") return post.status === "failed" || post.status === "rejected" || post.error;
+      return post.status === state.postStatusFilter;
+    })
     : state.posts;
 
   if (!filteredPosts.length) {
@@ -1187,24 +1221,7 @@ function renderPosts() {
 function renderPipelineStepper() {
   const context = pipelineContext();
   const meta = context.meta || {};
-  const stages = meta.stages || {};
-  const currentKey = meta.stage_key || state.pipelineStepFocus || "Pipeline Started";
   const statusState = context.running ? "running" : context.failed ? "failed" : "pending";
-
-  setHtml(
-    "#pipelineStepper",
-    PIPELINE_STEPS.map((step) => {
-      const stageState = stages[step.key] || "pending";
-      const isCurrent = step.key === currentKey || (step.key === "Completed" && context.status.task_state === "SUCCESS");
-      const tone = pipelineTone(stageState);
-      return `
-        <div class="step ${tone} ${isCurrent ? "is-active" : ""}">
-          <span class="step-label">${escapeHtml(step.label)}</span>
-          <span class="step-state">${escapeHtml(translateStageState(stageState))}</span>
-          <span class="step-state">${escapeHtml(stageExplanation(step.key, stageState))}</span>
-        </div>`;
-    }).join("")
-  );
 
   const buttonLocked = !hasAdminKey();
   const startBtn = $("#startPipelineBtn");
@@ -1213,22 +1230,16 @@ function renderPipelineStepper() {
   const badgeText = context.running ? "Running" : context.failed ? "Error" : context.status.task_state === "SUCCESS" ? "Done" : "Ready";
   const badgeToken = context.running ? "RUN" : context.failed ? "ERROR" : context.status.task_state === "SUCCESS" ? "OK" : "WAIT";
   setStatus("#pipelineStatusBadge", badgeToken, badgeText);
+  const statusBadge = $("#pipelineStatusBadge");
+  if (statusBadge) {
+    statusBadge.dataset.statusExplanation = statusExplanation(badgeText);
+  }
 
   let message = pipelineOutcomeMessage(meta, context);
   if (buttonLocked) {
     message = "Enter the admin access code in Settings to unlock the pipeline.";
   }
   setText("#pipelineStatusMessage", message);
-  setText("#pipelineInsight", statusExplanation(badgeText));
-
-  const note = [];
-  if (!state.sources.length) note.push("Add at least one source to unlock the workflow.");
-  if (state.sources.some((source) => source.type === "tg")) note.push("Telegram sources are included in the scenario.");
-  if (state.settingsDraft.language) note.push(`Language: ${state.settingsDraft.language}.`);
-  if (state.settingsDraft.duplicateDetection) note.push("Duplicate detection is enabled.");
-  if (state.settingsDraft.sourceFiltering) note.push("Source filtering is enabled.");
-  note.unshift("Guided workflow: Fetch News → Generate Post → Review → Send to Telegram.");
-  setText("#quickActionNote", note.join(" "));
 
   return statusState;
 }
@@ -1388,10 +1399,11 @@ function buildLiveFeedRows() {
 function renderLiveFeed() {
   const context = pipelineContext();
   const meta = context.meta || {};
+  const readyNewsCount = state.news.length;
   const liveBadge = context.running ? "Live" : context.failed ? "Needs attention" : context.status.task_state === "SUCCESS" ? "Done" : "Idle";
   const liveToken = context.running ? "RUN" : context.failed ? "ERROR" : context.status.task_state === "SUCCESS" ? "OK" : "WAIT";
   setStatus("#pipelineLiveBadge", liveToken, liveBadge);
-  setText("#pipelineLiveSummary", pipelineOutcomeMessage(meta, context));
+  setText("#pipelineLiveSummary", `${pipelineOutcomeMessage(meta, context)} Ready news: ${readyNewsCount}.`);
 
   const readyCount = Number(meta.ready_for_generation ?? meta.queued_for_ai ?? 0);
   setText(
@@ -1402,7 +1414,7 @@ function renderLiveFeed() {
   );
   setText(
     "#pipelineLiveActiveStage",
-    context.running ? translateStageLabel(meta.stage_label || meta.stage_key || "Pipeline Started") || "Idle" : "Idle"
+    `${readyNewsCount} item${readyNewsCount === 1 ? "" : "s"} ready`
   );
   setText(
     "#pipelineLiveLastAction",
@@ -1580,12 +1592,15 @@ function renderDashboard() {
   setText("#statPostsPublished", String(published));
   setText("#statFailedTasks", String(failed));
 
+  const activityRows = buildActivityRows();
+  setStatus("#activityBadge", activityRows.length ? "OK" : "WAIT", `${activityRows.length} event${activityRows.length === 1 ? "" : "s"}`);
+
   if (!hasAdminKey()) {
     renderPlaceholder("#activityTableBody", "Enter the admin access code to unlock live activity.", 3);
   } else {
     setHtml(
       "#activityTableBody",
-      buildActivityRows()
+      activityRows
         .map(
           (row) => `
             <tr>
@@ -1599,11 +1614,13 @@ function renderDashboard() {
   }
 
   const startBtn = $("#startPipelineBtn");
+  const sourcesBtn = $("#jumpToSourcesBtn");
   const parseBtn = $("#parseNewsBtn");
   const generateBtn = $("#generatePostsBtn");
   const publishBtn = $("#publishPendingBtn");
   const undoBtn = $("#undoDashboardBtn");
   if (startBtn) startBtn.disabled = !hasAdminKey() || context.running;
+  if (sourcesBtn) sourcesBtn.disabled = false;
   if (parseBtn) parseBtn.disabled = !hasAdminKey() || context.running;
   if (generateBtn) generateBtn.disabled = !hasAdminKey() || context.running || !state.news.length;
   if (publishBtn) publishBtn.disabled = !hasAdminKey() || context.running || !state.posts.some((post) => post.status === "generated" || post.status === "pending_approval");
@@ -1719,7 +1736,6 @@ function renderLockedPrivateBlocks() {
   setStatus("#sourcesCount", "WAIT", "Sources added: 0");
   setText("#pipelineStatusBadge", "Ready");
   setText("#pipelineStatusMessage", "Enter the admin access code in Settings to unlock the pipeline.");
-  setText("#quickActionNote", "Enter the admin access code in Settings to unlock private actions.");
 }
 
 function sortByDateDesc(items, key) {
@@ -1818,6 +1834,7 @@ async function startPipeline({ openDashboard = true } = {}) {
     showToast("Add the admin access code in Settings to start the pipeline.", "warn");
     return;
   }
+  showProcessPopup("Fetch News", "backend queues the Celery pipeline and starts collecting enabled RSS/Telegram sources.");
   const done = withButtonState($("#startPipelineBtn"), "Starting...");
   try {
     if (openDashboard) {
@@ -1834,7 +1851,7 @@ async function startPipeline({ openDashboard = true } = {}) {
     };
     renderDashboard();
     done("success", "Started");
-    showToast("Pipeline started", "ok");
+    showToast("Fetch News: backend queued the pipeline and started source collection.", "ok");
     await pollPipeline(result.task_id);
   } catch (error) {
     done("error", "Error");
@@ -1876,6 +1893,7 @@ async function pollPipeline(taskId) {
 }
 
 function undoDashboardView() {
+  showProcessPopup("Undo Dashboard", "frontend closes open dialogs and resets dashboard filters to the default view.");
   state.postStatusFilter = "";
   state.selectedPostId = "";
   state.pipelineStepFocus = "";
@@ -1884,7 +1902,7 @@ function undoDashboardView() {
   openSection("dashboardSection", { scroll: false });
   renderAll();
   window.scrollTo({ top: 0, behavior: "smooth" });
-  showToast("Dashboard view reset", "ok");
+  showToast("Undo Dashboard: panels, filters, and dialogs were reset.", "ok");
 }
 
 async function addTheme(event) {
@@ -2106,6 +2124,7 @@ function openPostModal(postId) {
   const regenerateBtn = $("#regeneratePostBtn");
   if (publishBtn) publishBtn.disabled = !hasAdminKey() || post.status === "published";
   if (regenerateBtn) regenerateBtn.disabled = !hasAdminKey() || !post.news_id;
+  setRegenerateState("idle", post?.news_id ? "Ready to regenerate" : "News source is missing");
 
   openDialog("#postModal");
 }
@@ -2118,8 +2137,10 @@ async function regeneratePost(postId) {
   const post = state.posts.find((item) => item.id === postId);
   if (!post?.news_id) {
     showToast("This post is missing its original news item.", "warn");
+    setRegenerateState("error", "Cannot regenerate without source news");
     return;
   }
+  setRegenerateState("running", "Regeneration in progress");
   const done = withButtonState($("#regeneratePostBtn"), "Regenerating...");
   try {
     await api(`/api/news/${post.news_id}/generate`, { method: "POST" });
@@ -2127,9 +2148,11 @@ async function regeneratePost(postId) {
     await loadPrivateData();
     renderAll();
     openPostModal(postId);
+    setRegenerateState("running", "Draft regenerated successfully");
     showToast("Post regenerated", "ok");
   } catch (error) {
     done("error", "Error");
+    setRegenerateState("error", "Regeneration failed");
     showToast(`Could not regenerate post: ${error.message}`, "error");
   }
 }
@@ -2181,6 +2204,7 @@ async function generateLatestPost() {
     showToast("Add the admin access code in Settings to generate posts.", "warn");
     return;
   }
+  showProcessPopup("Generate Post", "backend queues AI generation for the latest collected news item.");
   const done = withButtonState($("#generatePostsBtn"), "Generating...");
   const candidate = [...state.news].sort((left, right) => new Date(right.published_at) - new Date(left.published_at))[0];
   if (!candidate) {
@@ -2194,7 +2218,7 @@ async function generateLatestPost() {
     await loadPrivateData();
     renderAll();
     openSection("postsSection");
-    showToast("AI generation started", "ok");
+    showToast("Generate Post: backend queued AI draft generation for the latest news item.", "ok");
   } catch (error) {
     done("error", "Error");
     showToast(`Could not generate a post: ${error.message}`, "error");
@@ -2206,6 +2230,7 @@ async function publishPendingPost() {
     showToast("Add the admin access code in Settings to publish posts.", "warn");
     return;
   }
+  showProcessPopup("Send to Telegram", "backend approves the first pending draft and queues Telegram delivery.");
   const done = withButtonState($("#publishPendingBtn"), "Sending...");
   const candidate = [...state.posts].find((post) => post.status === "generated" || post.status === "pending_approval");
   if (!candidate) {
@@ -2223,7 +2248,7 @@ async function publishPendingPost() {
     await loadPrivateData();
     renderAll();
     openSection("postsSection");
-    showToast("Pending post sent to Telegram", "ok");
+    showToast("Send to Telegram: backend queued the approved draft for Telegram delivery.", "ok");
   } catch (error) {
     done("error", "Error");
     showToast(`Could not send pending post: ${error.message}`, "error");
@@ -2369,23 +2394,42 @@ function bindEvents() {
     }
   });
 
+  $("#pipelineStatusBadge")?.addEventListener("click", () => {
+    showToast($("#pipelineStatusBadge")?.dataset.statusExplanation || statusExplanation("Ready"), "warn");
+  });
+  $("#pipelineLiveBadge")?.addEventListener("click", () => {
+    showToast(`Current Pipeline Status includes ${state.news.length} ready news item${state.news.length === 1 ? "" : "s"}.`, "warn");
+  });
+  $("#newsQueueBadge")?.addEventListener("click", () => {
+    showToast(`Ready news: ${state.news.length} item${state.news.length === 1 ? "" : "s"} available in Current Pipeline Status.`, "warn");
+  });
+  $("#activityBadge")?.addEventListener("click", () => {
+    showToast("Last Activity shows recent pipeline, news, posts, and error events.", "warn");
+  });
+
   $("#openSourceModalBtn")?.addEventListener("click", () => openSourceModal());
   $("#openReadyTemplatesBtn")?.addEventListener("click", () => openSourceTemplatesLibrary({ focusSearch: true, expandAll: true }));
   $("#manageSourcesBtn")?.addEventListener("click", () => {
-    document.getElementById("sourcesManagementPanel")?.scrollIntoView({ behavior: "smooth", block: "start" });
+    showProcessPopup("Manage Sources", "frontend opens the News Source workspace and expands templates and matching results.");
+    openSourcesWorkspace({ focusSearch: false, expandAll: true });
   });
   $("#startPipelineBtn")?.addEventListener("click", startPipeline);
+  $("#jumpToSourcesBtn")?.addEventListener("click", () => {
+    showProcessPopup("Sources", "frontend opens the News Source block and expands templates and matching results.");
+    openSourcesWorkspace({ focusSearch: false, expandAll: true });
+  });
   $("#startPipelineFromSourceBtn")?.addEventListener("click", startPipelineFromSource);
   $("#parseNewsBtn")?.addEventListener("click", startPipeline);
   $("#generatePostsBtn")?.addEventListener("click", generateLatestPost);
   $("#publishPendingBtn")?.addEventListener("click", publishPendingPost);
   $("#undoDashboardBtn")?.addEventListener("click", undoDashboardView);
   $("#refreshBtn")?.addEventListener("click", async () => {
+    showProcessPopup("Refresh", "frontend reloads public status, private dashboard data, task status, posts, sources, and logs.");
     const done = withButtonState($("#refreshBtn"), "Refreshing...");
     try {
       await refreshAll();
       done("success", "Refreshed");
-      showToast("Panel refreshed", "ok");
+      showToast("Refresh: frontend reloaded dashboard data, task status, posts, sources, and logs.", "ok");
     } catch (error) {
       done("error", "Error");
       showToast(`Refresh failed: ${error.message}`, "error");
@@ -2490,7 +2534,7 @@ function bindEvents() {
         });
       } else if (target.dataset.focusPanel === "newsQueue") {
         window.requestAnimationFrame(() => {
-          document.getElementById("newsQueueCard")?.scrollIntoView({ behavior: "smooth", block: "center" });
+          document.getElementById("pipelineLiveFeedCard")?.scrollIntoView({ behavior: "smooth", block: "center" });
         });
       }
       return;
