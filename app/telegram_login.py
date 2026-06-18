@@ -17,7 +17,7 @@ async def main() -> None:
     from telethon import TelegramClient
 
     async with TelegramClient(
-        settings.telegram_session_name,
+        settings.telegram_reader_session_name,
         settings.telegram_api_id,
         settings.telegram_api_hash,
     ) as client:

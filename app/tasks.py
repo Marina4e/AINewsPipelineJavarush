@@ -12,7 +12,7 @@ from app.news_parser.sites import fetch_site_news
 from app.news_parser.telegram import fetch_telegram_news
 from app.services.filtering import is_relevant_news
 from app.services.news_service import save_news_if_new
-from app.services.settings_service import get_auto_publish_posts
+from app.services.settings_service import set_pipeline_current_task_id
 from app.telegram.publisher import publish_to_telegram
 from app.utils import configure_logging
 
@@ -24,9 +24,6 @@ PIPELINE_STAGES = [
     "Pipeline Started",
     "RSS Processing",
     "Telegram Processing",
-    "AI Processing",
-    "Post Generation",
-    "Publishing",
     "Completed",
 ]
 
@@ -37,6 +34,7 @@ celery_app = Celery(
 )
 
 celery_app.conf.timezone = "UTC"
+celery_app.conf.broker_connection_retry_on_startup = True
 celery_app.conf.beat_schedule = {
     "parse-news-every-configured-interval": {
         "task": "app.tasks.parse_all_sources_task",
@@ -86,6 +84,7 @@ def parse_all_sources_task(self) -> dict:
         "telegram_sources": 0,
         "new_items": 0,
         "duplicates": 0,
+        "ready_for_generation": 0,
         "queued_for_ai": 0,
         "waiting_approval": 0,
         "errors": 0,
@@ -98,6 +97,7 @@ def parse_all_sources_task(self) -> dict:
     try:
         sources = db.query(Source).filter(Source.enabled.is_(True)).all()
         stats["sources"] = len(sources)
+        set_pipeline_current_task_id(db, getattr(self.request, "id", ""))
         # Frontend читає Celery progress meta, щоб показувати стан конвеєра без перезавантаження.
         self.update_state(state="PROGRESS", meta=_pipeline_meta(stats, "Pipeline Started", "running"))
 
@@ -127,16 +127,11 @@ def parse_all_sources_task(self) -> dict:
                         continue
 
                     stats["new_items"] += 1
-                    stats["stage_key"] = "AI Processing"
-                    stats["stage_label"] = "AI Processing"
-                    self.update_state(state="PROGRESS", meta=_pipeline_meta(stats, "AI Processing", "running"))
                     decision = is_relevant_news(db, news)
                     if decision.accepted:
-                        generate_post_task.delay(news.id)
-                        stats["queued_for_ai"] += 1
-                        stats["stage_key"] = "Post Generation"
-                        stats["stage_label"] = "Post Generation"
-                        self.update_state(state="PROGRESS", meta=_pipeline_meta(stats, "Post Generation", "running"))
+                        stats["ready_for_generation"] += 1
+                        stats["queued_for_ai"] = stats["ready_for_generation"]
+                        self.update_state(state="PROGRESS", meta=_pipeline_meta(stats, stats["stage_key"], "running"))
                     else:
                         logger.info("News skipped by filters: %s | %s", news.title, decision.reason)
                 source.last_error = None
@@ -148,24 +143,17 @@ def parse_all_sources_task(self) -> dict:
                 db.commit()
                 logger.exception("Не вдалося обробити джерело %s: %s", source.name, exc)
 
-        if stats["queued_for_ai"]:
-            stats["stage_key"] = "Publishing"
-            stats["stage_label"] = "Publishing"
-            self.update_state(state="PROGRESS", meta=_pipeline_meta(stats, "Publishing", "running"))
-
         stats["stage_key"] = "Completed"
         stats["stage_label"] = "Completed"
         stats["pipeline_running"] = False
         stats["stages"]["Pipeline Started"] = "completed"
         stats["stages"]["RSS Processing"] = "completed" if stats["rss_sources"] else "pending"
         stats["stages"]["Telegram Processing"] = "completed" if stats["telegram_sources"] else "pending"
-        stats["stages"]["AI Processing"] = "completed" if stats["queued_for_ai"] else "pending"
-        stats["stages"]["Post Generation"] = "completed" if stats["queued_for_ai"] else "pending"
-        stats["stages"]["Publishing"] = "completed" if stats["queued_for_ai"] else "pending"
         stats["stages"]["Completed"] = "completed"
         self.update_state(state="SUCCESS", meta=_pipeline_meta(stats, "Completed", "completed"))
         return stats
     finally:
+        set_pipeline_current_task_id(db, "")
         db.close()
 
 
@@ -187,15 +175,10 @@ def generate_post_task(news_id: str) -> dict:
             generated_text = generate_post_sync(text=_build_news_text(news), title=news.title)
             post = existing or Post(news_id=news.id, generated_text=generated_text)
             post.generated_text = generated_text
-            auto_publish_posts = get_auto_publish_posts(db)
-            post.status = PostStatus.generated if auto_publish_posts else PostStatus.pending_approval
+            post.status = PostStatus.pending_approval
             post.error = None
             db.add(post)
             db.commit()
-
-            if auto_publish_posts:
-                publish_post_task.delay(post.id)
-                return {"status": "generated_and_queued_for_publish", "post_id": post.id}
 
             return {"status": "pending_approval", "post_id": post.id}
         except Exception as exc:

@@ -34,6 +34,7 @@ class Settings(BaseSettings):
     telegram_api_hash: str = ""
     telegram_bot_token: str = ""
     telegram_session_name: str = "./data/aibot_session"
+    telegram_reader_session_name: str = "./data/aibot_reader_session"
     telegram_target_channel: str = ""
 
     parser_interval_minutes: int = 30

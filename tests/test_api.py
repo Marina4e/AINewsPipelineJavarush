@@ -42,3 +42,39 @@ def test_can_create_topic_with_api_key() -> None:
 
     assert response.status_code == 201
     assert response.json()["slug"] == "technology"
+
+
+def test_can_delete_post_with_api_key() -> None:
+    with TestClient(app) as client:
+        news_response = client.post(
+            "/api/news/manual",
+            headers={"X-API-Key": "test-secret-key"},
+            json={
+                "title": "Manual test news",
+                "summary": "This is a manual test news item for the dashboard.",
+                "source": "Manual dashboard",
+            },
+        )
+        assert news_response.status_code == 201
+
+        news_id = news_response.json()["id"]
+        post_response = client.post(
+            f"/api/news/{news_id}/generate-demo",
+            headers={"X-API-Key": "test-secret-key"},
+        )
+        assert post_response.status_code == 200
+
+        delete_response = client.delete(
+            f"/api/posts/{post_response.json()['id']}",
+            headers={"X-API-Key": "test-secret-key"},
+        )
+
+    assert delete_response.status_code == 204
+
+
+def test_can_read_pipeline_status_with_api_key() -> None:
+    with TestClient(app) as client:
+        response = client.get("/api/pipeline/status", headers={"X-API-Key": "test-secret-key"})
+
+    assert response.status_code == 200
+    assert "news_count" in response.json()

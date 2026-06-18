@@ -27,6 +27,87 @@ class OpenAIPostClient:
         self.settings = get_settings()
         self.client = AsyncOpenAI(api_key=self.settings.openai_api_key) if self.settings.openai_api_key else None
 
+    async def check_connection(self) -> dict[str, str | bool | None]:
+        """Перевіряє ключ і доступ до моделі окремо від повної генерації.
+
+        Це дає зрозуміліший статус для dashboard:
+        - ключ відсутній;
+        - ключ невалідний;
+        - модель недоступна;
+        - сервіс тимчасово не відповів.
+        """
+
+        if not self.client:
+            return {
+                "ok": False,
+                "status": "missing",
+                "message": "OpenAI API Key не знайдено у .env.",
+                "generated_text": None,
+            }
+
+        try:
+            await self.client.models.list()
+            response = await self.client.chat.completions.create(
+                model=self.settings.openai_model,
+                messages=[
+                    {"role": "system", "content": "Відповідай лише OK."},
+                    {"role": "user", "content": "ping"},
+                ],
+                temperature=0,
+                max_tokens=1,
+            )
+            sample = response.choices[0].message.content or ""
+            return {
+                "ok": True,
+                "status": "verified",
+                "message": "OpenAI API Key успішно перевірено реальним запитом.",
+                "generated_text": sample,
+            }
+        except (AuthenticationError, PermissionDeniedError) as exc:
+            return {
+                "ok": False,
+                "status": "invalid",
+                "message": "OpenAI API Key недійсний або не має доступу до цього акаунта.",
+                "generated_text": None,
+            }
+        except BadRequestError as exc:
+            return {
+                "ok": False,
+                "status": "model_unavailable",
+                "message": f"Ключ працює, але модель {self.settings.openai_model} недоступна або не підтримується для цього акаунта.",
+                "generated_text": None,
+            }
+        except RateLimitError as exc:
+            return {
+                "ok": False,
+                "status": "rate_limited",
+                "message": "OpenAI тимчасово обмежив запити. Це не означає, що ключ невалідний.",
+                "generated_text": None,
+            }
+        except APITimeoutError as exc:
+            return {
+                "ok": False,
+                "status": "timeout",
+                "message": "OpenAI не відповів вчасно. Ключ може бути дійсний, але сервіс зараз повільний.",
+                "generated_text": None,
+            }
+        except APIError as exc:
+            logger.warning("OpenAI check failed: %s", exc)
+            return {
+                "ok": False,
+                "status": "unavailable",
+                "message": "OpenAI тимчасово недоступний або повернув помилку сервісу.",
+                "generated_text": None,
+            }
+        except Exception as exc:
+            logger.exception("Unexpected OpenAI check failure: %s", exc)
+            return {
+                "ok": False,
+                "status": "error",
+                "message": "Не вдалося завершити перевірку OpenAI.",
+                "generated_text": None,
+            }
+
     async def generate_post(self, text: str, title: str | None = None, force_demo: bool = False) -> str:
         # Тестовий режим примусово обходить OpenAI і повертає локальний демо-текст.
         if force_demo or not self.client:
